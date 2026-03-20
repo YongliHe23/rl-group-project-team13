@@ -1,0 +1,15 @@
+# Safety-Gymnasium
+safety-gymnasium>=1.0.0
+
+# Deep learning
+torch>=2.1.0
+torchvision
+
+# RL utilities
+stable-baselines3>=2.2.0
+
+# Logging & utils
+wandb
+tensorboard
+numpy
+tqdm

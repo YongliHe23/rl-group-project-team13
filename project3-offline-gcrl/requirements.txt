@@ -1,0 +1,18 @@
+# Core JAX stack
+jax[cuda12]>=0.4.20        # or jax[cpu] for CPU-only
+flax>=0.7.0
+optax>=0.1.7
+
+# OGBench
+ogbench
+
+# Data / env
+gymnasium>=0.29.0
+dm-control>=1.0.14
+mujoco>=3.0.0
+
+# Logging & utils
+wandb
+absl-py
+tqdm
+numpy
