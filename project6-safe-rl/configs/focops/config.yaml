@@ -1,0 +1,7 @@
+algo: FOCOPS
+env_id: SafetyPointGoal1-v0
+train_cfgs:
+  total_steps: 10000000
+  vector_env_nums: 1
+logger_cfgs:
+  use_wandb: false
