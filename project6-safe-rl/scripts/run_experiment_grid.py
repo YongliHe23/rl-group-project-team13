@@ -27,10 +27,9 @@ if __name__ == '__main__':
     eg = ExperimentGrid(exp_name='Benchmark_Safety_Velocity')
 
     # Set the algorithms.
-    base_policy = ['PolicyGradient', 'NaturalPG', 'TRPO', 'PPO']
-    naive_lagrange_policy = ['PPOLag', 'TRPOLag', 'RCPO', 'OnCRPO', 'PDO']
-    first_order_policy = ['CUP', 'FOCOPS', 'P3O']
-    second_order_policy = ['CPO', 'PCPO']
+    naive_lagrange_policy = ['PPOLag', 'TRPOLag']
+    first_order_policy = ['FOCOPS']
+    second_order_policy = ['CPO']
 
     # Set the environments.
     mujoco_envs = [
@@ -45,15 +44,15 @@ if __name__ == '__main__':
 
     # Set the device.
     avaliable_gpus = list(range(torch.cuda.device_count()))
-    gpu_id = [0, 1, 2, 3]
+    # gpu_id = [0, 1, 2, 3]
     # if you want to use CPU, please set gpu_id = None
-    # gpu_id = None
+    gpu_id = None
 
     if gpu_id and not set(gpu_id).issubset(avaliable_gpus):
         warnings.warn('The GPU ID is not available, use CPU instead.', stacklevel=1)
         gpu_id = None
 
-    eg.add('algo', base_policy + naive_lagrange_policy + first_order_policy + second_order_policy)
+    eg.add('algo', naive_lagrange_policy + first_order_policy + second_order_policy)
     eg.add('logger_cfgs:use_wandb', [False])
     eg.add('train_cfgs:vector_env_nums', [4])
     eg.add('train_cfgs:torch_threads', [1])
