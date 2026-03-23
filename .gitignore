@@ -11,8 +11,8 @@ venv/
 *.conda/
 
 # Experiment outputs
-/results/
-/project6-safe-rl/results/
+#/results/
+#/project6-safe-rl/results/
 wandb/
 
 # Jupyter
