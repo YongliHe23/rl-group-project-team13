@@ -37,6 +37,11 @@ def build_train_cfg() -> tuple[str, str, dict[str, Any]]:
     """Load the Point Gather CPO config directly from YAML."""
     repo_root = Path(__file__).resolve().parents[1]
     config = load_config(repo_root / 'configs' / 'cpo' / 'config_pointgather.yaml')
+    logger_cfgs = dict(config.get('logger_cfgs', {}))
+    log_dir = logger_cfgs.get('log_dir')
+    if isinstance(log_dir, str) and not Path(log_dir).is_absolute():
+        logger_cfgs['log_dir'] = str((repo_root / log_dir).resolve())
+        config['logger_cfgs'] = logger_cfgs
 
     algo = str(config['algo'])
     env_id = str(config['env_id'])

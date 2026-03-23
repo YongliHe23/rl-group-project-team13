@@ -3,7 +3,7 @@
     "train_cfgs": {
         "device": "cpu",
         "torch_threads": 1,
-        "vector_env_nums": 1,
+        "vector_env_nums": 4,
         "parallel": 1,
         "total_steps": 5000000,
         "epochs": 100
@@ -40,7 +40,7 @@
     "logger_cfgs": {
         "use_wandb": false,
         "wandb_project": "omnisafe",
-        "use_tensorboard": false,
+        "use_tensorboard": true,
         "save_model_freq": 100,
         "log_dir": "/Users/chrislee/Projects/safeRL/rl-group-project-team13/project6-safe-rl/results/point_gather_cpo",
         "window_lens": 100
@@ -76,7 +76,7 @@
         "train_cfgs": {
             "device": "cpu",
             "total_steps": 5000000,
-            "vector_env_nums": 1,
+            "vector_env_nums": 4,
             "torch_threads": 1
         },
         "algo_cfgs": {
@@ -110,7 +110,7 @@
         },
         "logger_cfgs": {
             "use_wandb": false,
-            "use_tensorboard": false,
+            "use_tensorboard": true,
             "save_model_freq": 100,
             "log_dir": "/Users/chrislee/Projects/safeRL/rl-group-project-team13/project6-safe-rl/results/point_gather_cpo",
             "window_lens": 100

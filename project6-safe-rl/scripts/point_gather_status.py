@@ -105,6 +105,102 @@ def estimate_eta(total_steps: float | None, current_steps: float | None, total_t
     return f'{hours:.2f}h'
 
 
+def format_duration(seconds: float | None) -> str:
+    """Format a duration in seconds into a short human-readable string."""
+    if seconds is None:
+        return 'n/a'
+    seconds = max(seconds, 0.0)
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    if hours > 0:
+        return f'{hours}h {minutes:02d}m {secs:02d}s'
+    if minutes > 0:
+        return f'{minutes}m {secs:02d}s'
+    return f'{secs}s'
+
+
+def latest_checkpoint_epoch(run_dir: Path) -> int | None:
+    """Return the latest saved checkpoint epoch if any exist."""
+    torch_dir = run_dir / 'torch_save'
+    if not torch_dir.exists():
+        return None
+    epochs: list[int] = []
+    for path in torch_dir.glob('epoch-*.pt'):
+        try:
+            epochs.append(int(path.stem.split('-')[-1]))
+        except ValueError:
+            continue
+    return max(epochs) if epochs else None
+
+
+def derive_epoch_progress(
+    rows: list[dict[str, str]],
+    config: dict[str, Any],
+    progress_path: Path,
+    config_path: Path,
+) -> dict[str, str]:
+    """Estimate finer-grained epoch progress from timestamps and logged history."""
+    now_ts = time.time()
+    started_ts = config_path.stat().st_mtime if config_path.exists() else progress_path.stat().st_mtime
+    seconds_since_start = now_ts - started_ts
+    seconds_since_update = now_ts - progress_path.stat().st_mtime
+    steps_per_epoch_cfg = config.get('algo_cfgs', {}).get('steps_per_epoch')
+    steps_per_epoch = float(steps_per_epoch_cfg) if isinstance(steps_per_epoch_cfg, (int, float)) else None
+
+    latest_epoch = 0.0
+    latest_env_steps = 0.0
+    latest_total_time = 0.0
+    latest_epoch_time = None
+    previous_env_steps = None
+    previous_total_time = None
+
+    if rows:
+        latest = rows[-1]
+        latest_epoch = as_float(latest, 'Train/Epoch') or 0.0
+        latest_env_steps = as_float(latest, 'TotalEnvSteps') or 0.0
+        latest_total_time = as_float(latest, 'Time/Total') or 0.0
+        latest_epoch_time = as_float(latest, 'Time/Epoch')
+        if len(rows) >= 2:
+            previous = rows[-2]
+            previous_env_steps = as_float(previous, 'TotalEnvSteps')
+            previous_total_time = as_float(previous, 'Time/Total')
+
+    if latest_epoch_time is None and previous_total_time is not None:
+        latest_epoch_time = latest_total_time - previous_total_time
+
+    current_epoch_index = int(latest_epoch) + (1 if rows else 0)
+    epoch_elapsed = seconds_since_start - latest_total_time
+    epoch_progress = 'n/a'
+    epoch_eta = 'n/a'
+
+    if latest_epoch_time is not None and latest_epoch_time > 0 and steps_per_epoch is not None:
+        progress_fraction = min(max(epoch_elapsed / latest_epoch_time, 0.0), 0.999)
+        estimated_epoch_steps = progress_fraction * steps_per_epoch
+        epoch_progress = f'{estimated_epoch_steps:.0f}/{steps_per_epoch:.0f} (~{progress_fraction * 100:.1f}%)'
+        epoch_eta = format_duration(latest_epoch_time - epoch_elapsed)
+    elif rows and previous_total_time is not None and previous_env_steps is not None and latest_total_time > previous_total_time:
+        recent_steps = latest_env_steps - previous_env_steps
+        recent_time = latest_total_time - previous_total_time
+        if recent_steps > 0 and recent_time > 0 and steps_per_epoch is not None:
+            recent_fps = recent_steps / recent_time
+            estimated_epoch_steps = min(epoch_elapsed * recent_fps, steps_per_epoch)
+            progress_fraction = min(max(estimated_epoch_steps / steps_per_epoch, 0.0), 0.999)
+            epoch_progress = f'{estimated_epoch_steps:.0f}/{steps_per_epoch:.0f} (~{progress_fraction * 100:.1f}%)'
+            epoch_eta = format_duration((steps_per_epoch - estimated_epoch_steps) / recent_fps)
+    elif not rows and steps_per_epoch is not None:
+        epoch_progress = f'0/{steps_per_epoch:.0f} (waiting for first epoch row)'
+
+    return {
+        'RunAge': format_duration(seconds_since_start),
+        'SinceLastFlush': format_duration(seconds_since_update),
+        'CurrentEpoch': str(current_epoch_index),
+        'EpochElapsed': format_duration(epoch_elapsed),
+        'EpochProgress': epoch_progress,
+        'EpochETA': epoch_eta,
+    }
+
+
 def maybe_make_plot(run_dir: Path, rows: list[dict[str, str]]) -> Path | None:
     """Write a quick progress plot if matplotlib is available and rows exist."""
     if not rows:
@@ -151,10 +247,22 @@ def maybe_make_plot(run_dir: Path, rows: list[dict[str, str]]) -> Path | None:
 def print_status(run_dir: Path, rows: list[dict[str, str]], config: dict[str, Any], plot_path: Path | None) -> None:
     """Print a compact status summary."""
     progress_path = run_dir / 'progress.csv'
+    config_path = run_dir / 'config.json'
     modified = datetime.fromtimestamp(progress_path.stat().st_mtime).isoformat(timespec='seconds')
+    progress_bytes = progress_path.stat().st_size if progress_path.exists() else 0
+    derived = derive_epoch_progress(rows, config, progress_path, config_path)
+    checkpoint_epoch = latest_checkpoint_epoch(run_dir)
+
     print(f'RunDir: {run_dir}')
     print(f'ProgressCsv: {progress_path}')
     print(f'LastUpdated: {modified}')
+    print(f'ProgressBytes: {progress_bytes}')
+    print(f'RunAge: {derived["RunAge"]}')
+    print(f'SinceLastFlush: {derived["SinceLastFlush"]}')
+    print(f'CurrentEpoch: {derived["CurrentEpoch"]}')
+    print(f'EpochElapsed: {derived["EpochElapsed"]}')
+    print(f'EpochProgress: {derived["EpochProgress"]}')
+    print(f'EpochETA: {derived["EpochETA"]}')
 
     total_steps_cfg = config.get('train_cfgs', {}).get('total_steps')
     if rows:
@@ -166,6 +274,8 @@ def print_status(run_dir: Path, rows: list[dict[str, str]], config: dict[str, An
         ep_len = as_float(latest, 'Metrics/EpLen')
         elapsed = as_float(latest, 'Time/Total')
         fps = as_float(latest, 'Time/FPS')
+        rollout = as_float(latest, 'Time/Rollout')
+        update = as_float(latest, 'Time/Update')
         eta = estimate_eta(
             float(total_steps_cfg) if isinstance(total_steps_cfg, (int, float)) else None,
             env_steps,
@@ -180,13 +290,31 @@ def print_status(run_dir: Path, rows: list[dict[str, str]], config: dict[str, An
         print(f'EpLen: {format_number(ep_len)}')
         print(f'ElapsedSeconds: {format_number(elapsed)}')
         print(f'FPS: {format_number(fps)}')
+        print(f'LastRolloutSeconds: {format_number(rollout)}')
+        print(f'LastUpdateSeconds: {format_number(update)}')
         print(f'ETA: {eta}')
+        if len(rows) >= 2:
+            previous = rows[-2]
+            prev_steps = as_float(previous, 'TotalEnvSteps')
+            prev_ret = as_float(previous, 'Metrics/EpRet')
+            prev_cost = as_float(previous, 'Metrics/EpCost')
+            prev_time = as_float(previous, 'Time/Total')
+            if prev_steps is not None and env_steps is not None:
+                print(f'DeltaSteps: {format_number(env_steps - prev_steps, 0)}')
+            if prev_ret is not None and ep_ret is not None:
+                print(f'DeltaEpRet: {format_number(ep_ret - prev_ret)}')
+            if prev_cost is not None and ep_cost is not None:
+                print(f'DeltaEpCost: {format_number(ep_cost - prev_cost)}')
+            if prev_time is not None and elapsed is not None:
+                print(f'DeltaElapsedSeconds: {format_number(elapsed - prev_time)}')
     else:
         print('Rows: 0')
         print('Status: training has started but no progress rows are written yet.')
 
     if total_steps_cfg is not None:
         print(f'ConfiguredTotalSteps: {total_steps_cfg}')
+    if checkpoint_epoch is not None:
+        print(f'LatestCheckpointEpoch: {checkpoint_epoch}')
     if plot_path is not None:
         print(f'Plot: {plot_path}')
 

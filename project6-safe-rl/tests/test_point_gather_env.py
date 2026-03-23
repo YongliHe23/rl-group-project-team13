@@ -65,8 +65,8 @@ def test_point_gather_sensor_bins_keep_nearest_object() -> None:
     robot_x, robot_y = task._agent_xy()
     yaw = task._agent_yaw()
     angle = yaw
-    far_dist = 5.0
-    near_dist = 2.0
+    far_dist = 0.4
+    near_dist = 0.2
 
     task._object_x[:2] = np.array(
         [

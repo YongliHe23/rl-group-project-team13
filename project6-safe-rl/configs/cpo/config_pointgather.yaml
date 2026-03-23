@@ -5,10 +5,8 @@ seed: 1
 train_cfgs:
   device: cpu
   total_steps: 5000000
-  # Using the OmniSafe default here may reduce multiprocessing overhead on this machine.
-  vector_env_nums: 1
-  # Using the OmniSafe default here may improve CPU utilization on this machine.
-  torch_threads: 16
+  vector_env_nums: 4
+  torch_threads: 1
 
 algo_cfgs:
   # Original CPO Point-Gather script:
@@ -47,7 +45,7 @@ logger_cfgs:
   use_wandb: false
   use_tensorboard: true
   save_model_freq: 100
-  log_dir: ./runs
+  log_dir: ./results/point_gather_cpo
   window_lens: 100
 
 model_cfgs:

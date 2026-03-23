@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import math
+from copy import deepcopy
 from typing import Any, cast
 
 import gymnasium
+import mujoco
 import numpy as np
 from numpy.random import RandomState
 
@@ -18,25 +20,30 @@ BOMB = 1
 class PointGatherTask(BaseTask):
     """Point Gather task: collect apples, avoid bombs, use custom gather sensors."""
 
+    spatial_scale = 0.05
     n_apples = 2
     n_bombs = 8
     apple_reward = 10.0
     bomb_cost = 1.0
     activity_range = 6.0
-    robot_object_spacing = 2.0
-    catch_range = 1.0
+    robot_object_spacing = 2.0 * spatial_scale
+    catch_range = 3.0 * spatial_scale
     n_bins = 10
-    sensor_range = 6.0
+    sensor_range = 12.0 * spatial_scale
     sensor_span = math.pi
     max_steps = 15
+    object_grid_scale = 2.0 * spatial_scale
 
     def __init__(self, config: dict[str, Any]) -> None:
         super().__init__(config=config)
         agent = cast(Any, self.agent)
+        agent.locations = [(0.0, 0.0)]
+        agent.rot = 0.0
         self._agent = agent
         self._engine_model = agent.engine.model
         self._engine_data = agent.engine.data
 
+        self.spatial_scale = float(config.get('spatial_scale', self.spatial_scale))
         self.n_apples = int(config.get('n_apples', self.n_apples))
         self.n_bombs = int(config.get('n_bombs', self.n_bombs))
         self.apple_reward = float(config.get('apple_reward', self.apple_reward))
@@ -50,6 +57,7 @@ class PointGatherTask(BaseTask):
         self.sensor_range = float(config.get('sensor_range', self.sensor_range))
         self.sensor_span = float(config.get('sensor_span', self.sensor_span))
         self.max_steps = int(config.get('max_steps', self.max_steps))
+        self.object_grid_scale = float(config.get('object_grid_scale', self.object_grid_scale))
         self._max_objects = self.n_apples + self.n_bombs
         self._sensor_range_sq = self.sensor_range * self.sensor_range
         self._catch_range_sq = self.catch_range * self.catch_range
@@ -59,6 +67,7 @@ class PointGatherTask(BaseTask):
 
         self.num_steps = self.max_steps
         self.mechanism_conf.continue_goal = False
+        self.reward_conf.reward_clip = 0.0
 
         sensor_space_dict = cast(dict[str, gymnasium.Space[Any]], agent.build_sensor_observation_space())
         self._agent_body_id = int(self._engine_model.body('agent').id)
@@ -90,10 +99,28 @@ class PointGatherTask(BaseTask):
         self._step_cost = 0.0
         self._step_apples = 0.0
         self._step_bombs = 0.0
+        self._initial_qpos: np.ndarray[Any, np.dtype[np.float64]] | None = None
+        self._initial_qvel: np.ndarray[Any, np.dtype[np.float64]] | None = None
 
     def build_observation_space(self) -> gymnasium.spaces.Box:
         """Use the original gather observation: robot state + apple/bomb sensors."""
         return cast(gymnasium.spaces.Box, self.observation_space)
+
+    def reset(self) -> None:
+        """Fast-reset the point robot without rebuilding the MuJoCo world each episode."""
+        if self.world is None or self._initial_qpos is None or self._initial_qvel is None:
+            super().reset()
+            self._initial_qpos = self._engine_data.qpos.copy()
+            self._initial_qvel = self._engine_data.qvel.copy()
+            return
+
+        self._engine_data.qpos[:] = self._initial_qpos
+        self._engine_data.qvel[:] = self._initial_qvel
+        self._engine_data.ctrl[:] = 0.0
+        if self._engine_data.act is not None:
+            self._engine_data.act[:] = 0.0
+        mujoco.mj_forward(self._engine_model, self._engine_data)
+        self.world_info.layout = deepcopy(self.world_info.reset_layout)
 
     def _sample_objects(self) -> None:
         """Sample objects on the same grid used in the original gather environment."""
@@ -103,8 +130,8 @@ class PointGatherTask(BaseTask):
         object_idx = 0
 
         while object_idx < self.n_apples:
-            x = float(rng.randint(-half_range, half_range) * 2)
-            y = float(rng.randint(-half_range, half_range) * 2)
+            x = float(rng.randint(-half_range, half_range) * self.object_grid_scale)
+            y = float(rng.randint(-half_range, half_range) * self.object_grid_scale)
             if x * x + y * y < self.robot_object_spacing**2:
                 continue
             if (x, y) in existing:
@@ -116,8 +143,8 @@ class PointGatherTask(BaseTask):
             object_idx += 1
 
         while object_idx < self._max_objects:
-            x = float(rng.randint(-half_range, half_range) * 2)
-            y = float(rng.randint(-half_range, half_range) * 2)
+            x = float(rng.randint(-half_range, half_range) * self.object_grid_scale)
+            y = float(rng.randint(-half_range, half_range) * self.object_grid_scale)
             if x * x + y * y < self.robot_object_spacing**2:
                 continue
             if (x, y) in existing:
@@ -277,16 +304,18 @@ class GatherLevel0(PointGatherTask):
 
     def __init__(self, config: dict[str, Any]) -> None:
         level_config = {
+            'spatial_scale': 0.05,
             'n_apples': 2,
             'n_bombs': 4,
             'apple_reward': 10.0,
             'bomb_cost': 1.0,
             'activity_range': 6.0,
-            'robot_object_spacing': 2.0,
-            'catch_range': 1.0,
+            'robot_object_spacing': 0.1,
+            'catch_range': 0.15,
             'n_bins': 10,
-            'sensor_range': 6.0,
+            'sensor_range': 0.6,
             'sensor_span': math.pi,
+            'object_grid_scale': 0.1,
             'max_steps': 15,
         }
         level_config.update(config)
@@ -298,16 +327,18 @@ class GatherLevel1(PointGatherTask):
 
     def __init__(self, config: dict[str, Any]) -> None:
         level_config = {
+            'spatial_scale': 0.05,
             'n_apples': 2,
             'n_bombs': 8,
             'apple_reward': 10.0,
             'bomb_cost': 1.0,
             'activity_range': 6.0,
-            'robot_object_spacing': 2.0,
-            'catch_range': 1.0,
+            'robot_object_spacing': 0.1,
+            'catch_range': 0.15,
             'n_bins': 10,
-            'sensor_range': 6.0,
+            'sensor_range': 0.6,
             'sensor_span': math.pi,
+            'object_grid_scale': 0.1,
             'max_steps': 15,
         }
         level_config.update(config)
@@ -319,16 +350,18 @@ class GatherLevel2(PointGatherTask):
 
     def __init__(self, config: dict[str, Any]) -> None:
         level_config = {
+            'spatial_scale': 0.05,
             'n_apples': 4,
             'n_bombs': 16,
             'apple_reward': 10.0,
             'bomb_cost': 1.0,
             'activity_range': 6.0,
-            'robot_object_spacing': 2.0,
-            'catch_range': 1.0,
+            'robot_object_spacing': 0.1,
+            'catch_range': 0.15,
             'n_bins': 10,
-            'sensor_range': 6.0,
+            'sensor_range': 0.6,
             'sensor_span': math.pi,
+            'object_grid_scale': 0.1,
             'max_steps': 15,
         }
         level_config.update(config)
