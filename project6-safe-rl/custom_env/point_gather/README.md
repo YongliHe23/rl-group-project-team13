@@ -1,6 +1,6 @@
 # Point Gather Environment Port
 
-This folder contains a Safety-Gymnasium port of the Point Gather environment used in the CPO paper.
+This folder contains a Safety-Gymnasium Point Gather port inspired by the Point-Gather task used in the CPO paper.
 
 ## Scope
 
@@ -19,56 +19,59 @@ This README describes only the environment port:
 
 ## Intended Reference
 
-This port is based on the Point Gather environment used in:
+This implementation was checked against:
 
 - Achiam et al., "Constrained Policy Optimization" (ICML 2017)
-- original environment implementation in `jachiam/cpo/envs/mujoco/gather/gather_env.py`
+- the experimental parameters in the paper supplement
+- the original `jachiam/cpo` Point-Gather experiment and environment code
 
-The goal is behavioral fidelity for experiments, not source-level fidelity to the original rllab code.
+Primary sources:
 
-## Similarities to the Original Environment
+- Paper: https://proceedings.mlr.press/v70/achiam17a.html
+- Supplement: https://proceedings.mlr.press/v70/achiam17a/achiam17a-supp.pdf
+- Original repository: https://github.com/jachiam/cpo
 
-- The main paper setting uses `2` apples and `8` bombs.
+The goal of this port is to preserve the benchmark's reward-cost structure and observation style while remaining trainable on top of Safety-Gymnasium's built-in `Point` robot.
+
+## Paper-Matched Task Semantics
+
+- The main paper setting uses `2` apples and `8` bombs for Point-Gather.
 - Apple reward is `+10`.
-- Bomb penalty magnitude is `1`.
+- Bomb events contribute a reward penalty of `-1` and a safety cost of `1`.
 - Episode horizon is `15` steps.
-- `activity_range=6`
-- `robot_object_spacing=2`
-- `catch_range=1`
-- `n_bins=10`
-- `sensor_range=6`
-- `sensor_span=pi`
-- Object placement follows the original grid-like sampling pattern.
+- Sensor layout uses `10` bins over a semicircle with `sensor_span = pi`.
+- Observations are the robot sensor state followed by apple sensor bins and bomb sensor bins.
+- Sensor intensities use the same distance form `1 - dist / sensor_range`.
 - Objects are removed once collected.
-- The episode terminates when all remaining objects are gone.
-- Observation structure is robot-state features followed by apple sensor bins and bomb sensor bins.
-- Sensor intensities use the original distance form `1 - dist / sensor_range`.
-- Sensor visibility uses the original semicircle field of view.
-- Sensor overwrite behavior approximates the original near-object occlusion logic by processing farther objects first.
-- Bomb collection affects both reward and safety:
-  reward gets `-bomb_cost`, and safety cost is exposed through `cost_bombs` / `cost_sum`.
+- Episodes terminate when all remaining objects are gone or the `15`-step limit is reached.
+- Object placement still follows the original grid-sampling pattern, but on a smaller spatial scale.
 
-## Differences From the Original Environment
+## Important Adaptations Relative to the Original Benchmark
 
-- The original code was implemented as an rllab `GatherEnv` wrapper around an older MuJoCo environment. This port is implemented as a Safety-Gymnasium `BaseTask`.
-- The original environment rendered apples and bombs as explicit MuJoCo world objects. This port reproduces the benchmark behavior in task logic rather than reproducing the original rendering path.
-- The underlying point robot comes from modern Safety-Gymnasium rather than the original rllab point environment class.
-- The original environment exposed bomb events through `env_infos['bombs']`. This port exposes the safety signal in OmniSafe/Safety-Gymnasium style as `cost_bombs` and `cost_sum`.
-- The original environment included some wrapper-specific behavior around inner-environment termination. This port follows Safety-Gymnasium’s normal environment lifecycle instead of copying that wrapper logic exactly.
+- The original environment was built on an older rllab / MuJoCo stack. This port is implemented as a Safety-Gymnasium `BaseTask`.
+- Safety-Gymnasium's built-in `Point` robot uses forward-and-turn control, not the exact original point-agent dynamics.
+- Because of that dynamics mismatch, the original Point-Gather spatial constants were not reachable in `15` steps on the Safety-Gymnasium robot.
+- The current implementation therefore rescales the world with `spatial_scale = 0.05`.
+- The current code uses `robot_object_spacing = 0.1`.
+- The current code uses `catch_range = 0.15`.
+- The current code uses `sensor_range = 0.6`.
+- The current code uses `object_grid_scale = 0.1`.
+- The agent is explicitly reset at the origin with heading `0.0` so the gather layout is centered and consistent across episodes.
+- The implementation keeps gather objects in task state rather than recreating apples and bombs as visible MuJoCo world geoms.
+- The environment uses a fast reset path after the first world build, resetting MuJoCo state in place instead of rebuilding the entire world every episode.
+- The safety signal is exposed in Safety-Gymnasium / OmniSafe style through `cost_bombs` and `cost_sum` instead of the original `env_infos['bombs']` interface.
 
 ## What This Means for Reproduction
 
-This port is intended to preserve the environment properties most likely to affect learning results:
+This environment should be treated as:
 
-- same task layout scale
-- same object counts for the paper setting
-- same apple and bomb event semantics
-- same episode horizon
-- similar observation content
-- similar placement distribution
-- same collect-and-remove dynamics
+- faithful to the Point-Gather reward, cost, horizon, and observation structure used in the paper
+- faithful to the paper's main object counts for the Point-Gather setting
+- adapted in physical scale so that the task is reachable under Safety-Gymnasium's current `Point` dynamics
+- not a same-scale reproduction of the original `mujoco_safe` Point-Gather world
+- not an exact quantitative reproduction of the original paper environment
 
-It should be treated as a paper-faithful environment reproduction at the task-behavior level, but not as an exact codebase port of the original repository.
+In practice, this means it is a good adapted benchmark for comparing algorithms inside the current Safety-Gymnasium / OmniSafe stack, but claims of reproducing the original paper's Point-Gather results should be made carefully.
 
 ## Registered Environments
 
