@@ -36,7 +36,7 @@ def register_with_omnisafe() -> None:
 def build_train_cfg() -> tuple[str, str, dict[str, Any]]:
     """Load the Point Gather CPO config directly from YAML."""
     repo_root = Path(__file__).resolve().parents[1]
-    config = load_config(repo_root / 'configs' / 'cpo' / 'config_pointgather.yaml')
+    config = load_config(repo_root / 'configs' / 'cpo' / 'config_point_gather.yaml')
     logger_cfgs = dict(config.get('logger_cfgs', {}))
     log_dir = logger_cfgs.get('log_dir')
     if isinstance(log_dir, str) and not Path(log_dir).is_absolute():

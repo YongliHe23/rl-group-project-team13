@@ -38,7 +38,7 @@ More detailed environment notes are in `custom_env/point_gather/README.md`.
 
 The `configs/cpo/` folder currently contains paper-style CPO configs for:
 
-- Point Gather: `configs/cpo/config_pointgather.yaml`
+- Point Gather: `configs/cpo/config_point_gather.yaml`
 - native Safety-Gymnasium Point Circle: `configs/cpo/config_point_circle.yaml`
 
 These configs are best-effort OmniSafe translations of the paper hyperparameters, not exact ports of the original rllab implementation. More detail is in `configs/cpo/README.md`.

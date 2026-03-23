@@ -26,7 +26,7 @@ def load_config(config_path: Path) -> dict[str, Any]:
 def build_smoke_cfg(args: argparse.Namespace) -> tuple[str, str, dict[str, Any]]:
     """Load the CPO config and override it for a short training smoke test."""
     repo_root = Path(__file__).resolve().parents[1]
-    config = load_config(repo_root / 'configs' / 'cpo' / 'config_pointgather.yaml')
+    config = load_config(repo_root / 'configs' / 'cpo' / 'config_point_gather.yaml')
 
     algo = str(config['algo'])
     env_id = str(config['env_id'])

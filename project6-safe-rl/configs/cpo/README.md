@@ -27,7 +27,7 @@ Primary sources:
 
 ## Point Gather Config: What Still Matches the Paper
 
-`config_pointgather.yaml` keeps the main Point-Gather algorithm settings close to the supplement and original script:
+`config_point_gather.yaml` keeps the main Point-Gather algorithm settings close to the supplement and original script:
 
 - `seed = 1`
 - `steps_per_epoch = 50000`
@@ -98,5 +98,5 @@ For Point Gather specifically, the current config is paper-matched at the algori
 
 ## Files
 
-- `config_pointgather.yaml`: main CPO config for the paper-style Point Gather run
+- `config_point_gather.yaml`: main CPO config for the paper-style Point Gather run
 - `config_point_circle.yaml`: main CPO config for a native Safety-Gymnasium Point Circle run

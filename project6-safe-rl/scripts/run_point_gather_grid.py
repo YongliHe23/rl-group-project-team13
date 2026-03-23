@@ -21,7 +21,7 @@ POINT_GATHER_ENVS = (
 
 POINT_GATHER_ALGOS = ('CPO', 'FOCOPS', 'PPOLag', 'TRPOLag')
 CONFIG_PATHS = {
-    'CPO': 'configs/cpo/config_pointgather.yaml',
+    'CPO': 'configs/cpo/config_point_gather.yaml',
     'FOCOPS': 'configs/focops/config.yaml',
     'PPOLag': 'configs/ppo_lagrangian/config.yaml',
     'TRPOLag': 'configs/ppo_lagrangian/config.yaml',
