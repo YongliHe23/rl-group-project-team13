@@ -1,4 +1,5 @@
 algo: PPOLag
+seed: 0
 env_id: SafetyPointGoal1-v0
 train_cfgs:
   # 1e6 for simplicity
@@ -8,7 +9,6 @@ logger_cfgs:
   use_wandb: false
 algo_cfgs:
   steps_per_epoch: 30000
-  update_iters: 50
   gamma: 0.99
   cost_gamma: 0.99
   lam: 0.97
@@ -22,13 +22,12 @@ lagrange_cfgs:
   lagrangian_multiplier_init: 1.0
   lambda_lr: 5e-2
 model_cfgs: 
-  actor: {
-    lr: 3e-4,
-    hidden_sizes: [256,256],
-    activation: "tanh",
-  }
-  critic: {
-    lr: 1e-3,
-    hidden_sizes: [256,256],
-    activation: "tanh",
-  }
+  actor: 
+    lr: 3e-4
+    hidden_sizes: [256,256]
+    activation: "tanh"
+  critic: 
+    lr: 1e-3
+    hidden_sizes: [256,256]
+    activation: "tanh"
+  
