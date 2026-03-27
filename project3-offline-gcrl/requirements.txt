@@ -14,5 +14,6 @@ mujoco>=3.0.0
 # Logging & utils
 wandb
 absl-py
+ml_collections
 tqdm
 numpy

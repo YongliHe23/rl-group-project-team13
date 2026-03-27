@@ -29,7 +29,7 @@ import numpy as np
 # Override by setting the OGBENCH_IMPLS environment variable.
 OGBENCH_IMPLS = os.environ.get(
     'OGBENCH_IMPLS',
-    os.path.join(os.path.dirname(__file__), '../../../../ogbench/impls'),
+    os.path.join(os.path.dirname(__file__), '/home/yonglihe/ece567/project/ogbench/impls'),
 )
 sys.path.insert(0, os.path.abspath(OGBENCH_IMPLS))
 
