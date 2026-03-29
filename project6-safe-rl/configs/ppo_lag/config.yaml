@@ -20,14 +20,14 @@ algo_cfgs:
 lagrange_cfgs: 
   cost_limit: 25.0
   lagrangian_multiplier_init: 1.0
-  lambda_lr: 5e-2
+  lambda_lr: 0.05
 model_cfgs: 
   actor: 
-    lr: 3e-4
+    lr: 0.0003
     hidden_sizes: [256,256]
     activation: "tanh"
   critic: 
-    lr: 1e-3
+    lr: 0.001
     hidden_sizes: [256,256]
     activation: "tanh"
   
