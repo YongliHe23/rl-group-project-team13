@@ -37,7 +37,7 @@ def main():
     agent.learn()
   
 # using the following as an example:
-# python scripts/train_ppolag.py --config configs/ppo_lag/config.yaml --env_id SafetyPointGoal1-v0 --seed 0
+# python scripts/train_trpolag.py --config configs/trpo_lag/config.yaml --env_id SafetyPointGoal1-v0 --seed 0
 
 if __name__ == "__main__":
     main()

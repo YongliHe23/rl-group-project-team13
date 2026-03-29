@@ -21,6 +21,10 @@ def main():
     print(f"Using CSV: {csv_path}")
 
     df = pd.read_csv(csv_path)
+    df["DeltaSteps"] = df["TotalEnvSteps"].diff().fillna(df["TotalEnvSteps"])
+    df["CostRate_epoch_est"] = df["Metrics/EpCost"] / df["Metrics/EpLen"]
+    df["CumulativeCost_est"] = (df["DeltaSteps"] * df["CostRate_epoch_est"]).cumsum()
+    df["CostRate_est"] = df["CumulativeCost_est"] / df["TotalEnvSteps"]
 
     # ===== Extract Figure 7 data =====
     fig7_df = df[
