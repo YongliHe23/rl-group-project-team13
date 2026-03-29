@@ -91,5 +91,8 @@ def main():
     plt.show()
     print(f"Saved plot to {out_path}")
 
+# using the following code as an example,
+# python scripts\plot_ppolag_trpolag.py --algo PPOLag --csv "runs\PPOLag-{SafetyPointGoal1-v0}\seed-000-2026-03-29-13-02-42\progress.csv"
+
 if __name__ == "__main__":
     main()
