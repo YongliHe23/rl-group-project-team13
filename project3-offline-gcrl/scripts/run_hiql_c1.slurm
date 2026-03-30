@@ -25,5 +25,4 @@ mkdir -p "$RUN_DIR"
 cd "$RUN_DIR"
 
 nvidia-smi || true
-srun -u python -u "$SCRIPT" --env antsoccer --task stitch --dsize medium
-
+srun -u python -u "$SCRIPT" --env pointmaze --task navigate --dsize large --parallel-seeds

@@ -19,6 +19,7 @@ References:
 
 import argparse
 import math
+import multiprocessing as mp
 import os
 from datetime import datetime
 
@@ -26,7 +27,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributions import Normal
+from torch.distributions import Categorical, Normal
 from torch.optim import Adam
 
 import ogbench
@@ -42,11 +43,13 @@ HIDDEN_DIMS  = (512, 512, 512)
 LATENT_DIM   = 512
 NONLINEARITY = nn.GELU
 
-EVAL_EPISODES = 50   # per task (overridden by per-env config)
-SEED          = 42
+EVAL_TEMPERATURE    = 0.3   # softmax temperature for discrete action sampling (powderworld)
+EVAL_EPISODES       = 50
+SEEDS               = [42, 0, 1, 2]   # four independent runs
+EVAL_INTERVAL       = 100_000         # evaluate every 100 k steps
+DEFAULT_TRAIN_STEPS = 500_000         # default per-seed budget (overrides per-env cfg)
 
-torch.manual_seed(SEED)
-np.random.seed(SEED)
+# Module-level seed is NOT set here; each seed is applied inside the training loop.
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
@@ -65,6 +68,80 @@ def mlp(input_dim: int, output_dim: int,
         prev = h
     layers.append(nn.Linear(prev, output_dim))
     return nn.Sequential(*layers)
+
+
+class ImpalaSmall(nn.Module):
+    """IMPALA-small visual encoder: (B, H, W, C) uint8 → (B, 512) float32."""
+    ENC_DIM = 512
+
+    class _ResBlock(nn.Module):
+        def __init__(self, ch: int):
+            super().__init__()
+            self.c1 = nn.Conv2d(ch, ch, 3, padding=1)
+            self.c2 = nn.Conv2d(ch, ch, 3, padding=1)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            r = x
+            x = F.relu(x); x = self.c1(x)
+            x = F.relu(x); x = self.c2(x)
+            return x + r
+
+    class _ResStack(nn.Module):
+        def __init__(self, in_ch: int, out_ch: int):
+            super().__init__()
+            self.conv  = nn.Conv2d(in_ch, out_ch, 3, padding=1)
+            self.pool  = nn.MaxPool2d(3, stride=2, padding=1)
+            self.block = ImpalaSmall._ResBlock(out_ch)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return self.block(self.pool(self.conv(x)))
+
+    def __init__(self, in_channels: int = 6):
+        super().__init__()
+        self.stacks = nn.Sequential(
+            self._ResStack(in_channels, 16),
+            self._ResStack(16, 32),
+            self._ResStack(32, 32),
+        )
+        self.head = nn.Sequential(nn.Linear(512, 512), nn.GELU())
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.dtype != torch.float32:
+            x = x.float()
+        x = x / 255.0
+        x = x.permute(0, 3, 1, 2)
+        x = F.relu(self.stacks(x)).flatten(1)
+        return self.head(x)
+
+
+class CategoricalActor(nn.Module):
+    """Discrete AWR actor for CRL on powderworld.
+
+    Replaces DDPG+BC (which requires continuous actions).
+    AWR loss: adv from V(s',g) - V(s,g) via contrastive Q; -(exp_a * log_prob).mean()
+    """
+
+    def __init__(self, obs_dim: int, act_n: int):
+        super().__init__()
+        self.net   = mlp(obs_dim * 2, act_n)   # input: [s_enc; g_enc]
+        self.act_n = act_n
+
+    def forward(self, obs: torch.Tensor, goal: torch.Tensor) -> torch.Tensor:
+        return self.net(torch.cat([obs, goal], dim=-1))    # logits: (B, act_n)
+
+    def log_prob(self, obs: torch.Tensor, goal: torch.Tensor,
+                 action: torch.Tensor) -> torch.Tensor:
+        """action: (B,) LongTensor."""
+        logits = self.forward(obs, goal)
+        return Categorical(logits=logits).log_prob(action)
+
+    def act(self, obs_np: np.ndarray, goal_np: np.ndarray,
+            temperature: float = EVAL_TEMPERATURE) -> int:
+        obs  = torch.FloatTensor(obs_np).unsqueeze(0).to(device)
+        goal = torch.FloatTensor(goal_np).unsqueeze(0).to(device)
+        with torch.no_grad():
+            logits = self.forward(obs, goal) / max(temperature, 1e-6)
+            return int(Categorical(logits=logits).sample().item())
 
 
 class ContrastiveCritic(nn.Module):
@@ -146,22 +223,49 @@ class GaussianActor(nn.Module):
 # ──────────────────────────────── CRL agent ───────────────────────────────────
 
 class CRL:
-    """Contrastive RL agent (offline GCRL)."""
+    """Contrastive RL agent (offline GCRL).
 
-    def __init__(self, obs_dim: int, act_dim: int, alpha: float):
-        self.alpha  = alpha
-        self.critic = ContrastiveCritic(obs_dim, act_dim).to(device)
-        self.actor  = GaussianActor(obs_dim, act_dim).to(device)
+    For visual/discrete envs (powderworld):
+      - ImpalaSmall encoder maps (B,H,W,6) → (B,512); trained via critic loss only
+      - Actions are integer indices → one-hot encoded for the contrastive critic
+      - Actor switches from DDPG+BC to AWR with Categorical distribution
+        (DDPG+BC requires continuous actions; AWR generalises to discrete)
+    """
 
-        self.critic_opt = Adam(self.critic.parameters(), lr=LR)
-        self.actor_opt  = Adam(self.actor.parameters(),  lr=LR)
+    def __init__(self, obs_dim: int, act_dim: int, alpha: float,
+                 is_visual: bool = False, is_discrete: bool = False):
+        self.alpha       = alpha
+        self.is_visual   = is_visual
+        self.is_discrete = is_discrete
+
+        if is_visual:
+            self.img_encoder = ImpalaSmall(in_channels=6).to(device)
+            obs_dim = ImpalaSmall.ENC_DIM
+
+        # Critic: phi(s, a) where a is one-hot for discrete or continuous vector
+        critic_act_dim = act_dim   # act_dim = act_n for discrete (one-hot size)
+        self.critic = ContrastiveCritic(obs_dim, critic_act_dim).to(device)
+
+        if is_discrete:
+            self.actor = CategoricalActor(obs_dim, act_dim).to(device)
+        else:
+            self.actor = GaussianActor(obs_dim, act_dim).to(device)
+
+        critic_params = list(self.critic.parameters())
+        if is_visual:
+            critic_params += list(self.img_encoder.parameters())
+        self.critic_opt = Adam(critic_params, lr=LR)
+        self.actor_opt  = Adam(self.actor.parameters(), lr=LR)
+
+    def _one_hot(self, action: torch.LongTensor) -> torch.Tensor:
+        return F.one_hot(action, num_classes=self.actor.act_n).float()
 
     def _critic_update(self, obs, action, future_obs) -> float:
         loss = self.critic.critic_loss(obs, action, future_obs)
         self.critic_opt.zero_grad(); loss.backward(); self.critic_opt.step()
         return loss.item()
 
-    def _actor_update(self, obs, action, actor_goal) -> float:
+    def _actor_update_continuous(self, obs, action, actor_goal) -> float:
         """DDPG+BC: scale-invariant Q term + Gaussian NLL BC term."""
         mean   = self.actor(obs, actor_goal)
         a_clip = mean.clamp(-1, 1)
@@ -175,17 +279,63 @@ class CRL:
         self.actor_opt.zero_grad(); actor_loss.backward(); self.actor_opt.step()
         return actor_loss.item()
 
-    def update(self, batch: dict) -> dict:
-        obs        = torch.FloatTensor(batch["observations"]).to(device)
-        action     = torch.FloatTensor(batch["actions"]).to(device)
-        future_obs = torch.FloatTensor(batch["future_obs"]).to(device)
-        actor_goal = torch.FloatTensor(batch["actor_goals"]).to(device)
+    def _actor_update_discrete(self, obs, action_int: torch.LongTensor,
+                                actor_goal) -> float:
+        """AWR actor for discrete actions.
 
-        c_loss = self._critic_update(obs, action, future_obs)
-        a_loss = self._actor_update(obs, action, actor_goal)
+        Advantage: Q(s,a_data,g) from contrastive critic.
+        AWR loss: -(exp(alpha * Q) * log_prob(a_data)).mean()
+        Q is used in place of advantage (no baseline V; empirically stable).
+        """
+        with torch.no_grad():
+            a_oh = self._one_hot(action_int)
+            q    = self.critic.q(obs, a_oh, actor_goal)
+            exp_a = torch.clamp(torch.exp(self.alpha * q), max=100.0)
+
+        log_prob   = self.actor.log_prob(obs, actor_goal, action_int)
+        actor_loss = -(exp_a * log_prob).mean()
+        self.actor_opt.zero_grad(); actor_loss.backward(); self.actor_opt.step()
+        return actor_loss.item()
+
+    def update(self, batch: dict) -> dict:
+        if self.is_visual:
+            raw_obs  = torch.ByteTensor(batch["observations"]).to(device)
+            raw_fut  = torch.ByteTensor(batch["future_obs"]).to(device)
+            raw_goal = torch.ByteTensor(batch["actor_goals"]).to(device)
+            # Encoder trains via critic loss
+            obs        = self.img_encoder(raw_obs.float())
+            future_obs = self.img_encoder(raw_fut.float())
+            actor_goal = self.img_encoder(raw_goal.float()).detach()
+            obs_actor  = obs.detach()
+        else:
+            obs        = torch.FloatTensor(batch["observations"]).to(device)
+            future_obs = torch.FloatTensor(batch["future_obs"]).to(device)
+            actor_goal = torch.FloatTensor(batch["actor_goals"]).to(device)
+            obs_actor  = obs
+
+        if self.is_discrete:
+            action_int = torch.LongTensor(
+                batch["actions"].astype(np.int64)).to(device)
+            action_oh  = self._one_hot(action_int)
+            c_loss = self._critic_update(obs, action_oh, future_obs)
+            a_loss = self._actor_update_discrete(obs_actor, action_int, actor_goal)
+        else:
+            action = torch.FloatTensor(batch["actions"]).to(device)
+            c_loss = self._critic_update(obs, action, future_obs)
+            a_loss = self._actor_update_continuous(obs_actor, action, actor_goal)
+
         return dict(c_loss=c_loss, a_loss=a_loss)
 
-    def select_action(self, obs: np.ndarray, goal: np.ndarray) -> np.ndarray:
+    def select_action(self, obs: np.ndarray, goal: np.ndarray):
+        if self.is_visual:
+            with torch.no_grad():
+                obs_t  = torch.FloatTensor(obs).unsqueeze(0).to(device)
+                goal_t = torch.FloatTensor(goal).unsqueeze(0).to(device)
+                obs_enc  = self.img_encoder(obs_t)
+                goal_enc = self.img_encoder(goal_t)
+            obs_enc_np  = obs_enc.squeeze(0).cpu().numpy()
+            goal_enc_np = goal_enc.squeeze(0).cpu().numpy()
+            return self.actor.act(obs_enc_np, goal_enc_np)
         return self.actor.act(obs, goal)
 
 
@@ -285,12 +435,17 @@ def evaluate(env, agent: CRL, num_episodes: int) -> dict:
         task_successes = []
         for _ in range(num_episodes):
             obs, info = env.reset(options=dict(task_id=task_id, render_goal=False))
-            goal      = info['goal'].astype(np.float32)
+            goal = info['goal']
+            if not agent.is_visual:
+                goal = goal.astype(np.float32)
             ep_return = 0.0
 
             done = False
             while not done:
-                action = agent.select_action(obs.astype(np.float32), goal)
+                if agent.is_visual:
+                    action = agent.select_action(obs, goal)
+                else:
+                    action = agent.select_action(obs.astype(np.float32), goal)
                 obs, reward, terminated, truncated, info = env.step(action)
                 ep_return += float(reward)
                 done = terminated or truncated
@@ -307,105 +462,315 @@ def evaluate(env, agent: CRL, num_episodes: int) -> dict:
     )
 
 
-# ────────────────────────────────────── main ──────────────────────────────────
+# ──────────────────────────── parallel-seed worker ───────────────────────────
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--env",        default="pointmaze",  help="Environment base name")
-    parser.add_argument("--task",       default="navigate",   help="Task name")
-    parser.add_argument("--dsize",      default="medium",     help="Dataset size/difficulty")
-    parser.add_argument("--train-step", default=None, type=int,
-                        help="Override number of gradient steps (default: per-env config)")
-    parser.add_argument("--slurm-tqdm", default=True,
-                        action=argparse.BooleanOptionalAction,
-                        help="Print every 10 000 steps instead of tqdm (Slurm mode)")
-    args = parser.parse_args()
+def _crl_seed_worker(kwargs: dict):
+    """Run one seed of CRL training; designed to be called in a subprocess.
 
-    env_name = f"{args.env}-{args.dsize}-{args.task}-v0"
+    Device note: HPC V100s typically run in exclusive-process compute mode, which
+    allows only one CUDA context at a time.  Parallel workers therefore use CPU
+    for gradient steps; evaluation (MuJoCo) already runs on CPU and is the
+    dominant cost (~90 % of wall time), so the overall speedup is preserved.
+    """
+    seed          = kwargs['seed']
+    env_name      = kwargs['env_name']
+    cfg           = kwargs['cfg']
+    train_steps   = kwargs['train_steps']
+    eval_intv     = kwargs['eval_intv']
+    is_visual     = kwargs['is_visual']
+    is_discrete   = kwargs['is_discrete']
+    obs_dim       = kwargs['obs_dim']
+    act_dim       = kwargs['act_dim']
+    dataset_dir   = kwargs['dataset_dir']
+    eval_episodes = kwargs['eval_episodes']
 
-    # ── Load per-environment configuration ────────────────────────────────────
-    cfg         = get_config(env_name)
-    train_steps = args.train_step if args.train_step is not None else cfg.train_steps
+    # Override the module-level device; spawned subprocess re-imports the module
+    # so this is safe and does not affect the parent process or other workers.
+    global device
+    device = torch.device(kwargs.get('device', 'cuda' if torch.cuda.is_available() else 'cpu'))
+    print(f"  [Seed {seed}] using device: {device}", flush=True)
 
-    print(f"\n{'='*60}")
-    print(f"CRL on OGBench: {env_name}")
-    print(f"  Train steps  : {train_steps:,}  |  Batch size : {cfg.batch_size}")
-    print(f"  LR={cfg.lr}  γ={cfg.discount}  α={cfg.alpha}")
-    print(f"  Hidden dims  : {HIDDEN_DIMS}  |  Latent dim : {LATENT_DIM}")
-    print(f"  Value goals  : geom(1-γ) traj  (value_geom_sample=True)")
-    print(f"  Actor goals  : p_traj={cfg.actor_p_trajgoal}  "
-          f"p_rand={cfg.actor_p_randomgoal}  geom=False")
-    print(f"{'='*60}\n")
+    torch.manual_seed(seed)
+    np.random.seed(seed)
 
-    # ── 1. Load environment + dataset ─────────────────────────────────────────
-    print("Loading environment and dataset …")
-    env, train_dataset, val_dataset = ogbench.make_env_and_datasets(
-        env_name,
-        dataset_dir=DATASET_DIR,
-        compact_dataset=False,
-    )
-    obs_dim = train_dataset["observations"].shape[1]
-    act_dim = train_dataset["actions"].shape[1]
-    print(f"  Train dataset size : {len(train_dataset['observations']):,}")
-    print(f"  Val   dataset size : {len(val_dataset['observations']):,}")
-    print(f"  Observation dim    : {obs_dim}")
-    print(f"  Action dim         : {act_dim}")
-    print(f"  Dataset keys       : {list(train_dataset.keys())}\n")
+    train_dataset = kwargs['train_dataset']
+    print(f"  [Seed {seed}] creating env (env_only, no dataset reload) ...", flush=True)
+    env = ogbench.make_env_and_datasets(env_name, dataset_dir=dataset_dir, env_only=True)
+    print(f"  [Seed {seed}] env ready, building agent ...", flush=True)
 
-    # ── 2. Initialise agent and dataset wrapper ────────────────────────────────
-    agent      = CRL(obs_dim, act_dim, alpha=cfg.alpha)
+    agent      = CRL(obs_dim, act_dim, alpha=cfg.alpha,
+                     is_visual=is_visual, is_discrete=is_discrete)
     gc_dataset = GCDataset(
         train_dataset,
         discount           = cfg.discount,
         actor_p_trajgoal   = cfg.actor_p_trajgoal,
         actor_p_randomgoal = cfg.actor_p_randomgoal,
     )
-    print("Agent initialised.\n")
+    print(f"  [Seed {seed}] starting training loop (print every 10k steps) ...", flush=True)
 
-    # ── 3. Training loop ───────────────────────────────────────────────────────
-    print(f"Training for {train_steps:,} steps …")
-
-    if args.slurm_tqdm:
-        for step in range(1, train_steps + 1):
-            batch  = gc_dataset.sample(cfg.batch_size)
-            losses = agent.update(batch)
-            if step % 10000 == 0:
-                print(f"  step {step:>8,}/{train_steps:,} | "
-                      f"C={losses['c_loss']:.4f}  "
-                      f"A={losses['a_loss']:.4f}")
-    else:
-        pbar = tqdm(range(1, train_steps + 1), desc="Training", unit="step")
-        for _ in pbar:
-            batch  = gc_dataset.sample(cfg.batch_size)
-            losses = agent.update(batch)
-            pbar.set_postfix(
-                C=f"{losses['c_loss']:.4f}",
-                A=f"{losses['a_loss']:.4f}",
+    seed_evals = []
+    for step in range(1, train_steps + 1):
+        batch  = gc_dataset.sample(cfg.batch_size)
+        losses = agent.update(batch)
+        if step % 10_000 == 0:
+            print(f"  [Seed {seed}] step {step:>8,}/{train_steps:,} | "
+                  f"C={losses['c_loss']:.4f}  "
+                  f"A={losses['a_loss']:.4f}", flush=True)
+        if step % eval_intv == 0:
+            es = evaluate(env, agent, eval_episodes)
+            seed_evals.append((step, es['per_task_success'], es['success_rate']))
+            task_str = "  ".join(
+                f"T{i+1}:{sr*100:.1f}%"
+                for i, sr in enumerate(es['per_task_success'])
             )
-
-    # ── 4. Evaluation ──────────────────────────────────────────────────────────
-    print(f"\nEvaluating for {cfg.eval_episodes} episodes per task …")
-    eval_stats = evaluate(env, agent, cfg.eval_episodes)
-    print(f"  Success rate : {eval_stats['success_rate']:.2%}")
-    print(f"  Mean return  : {eval_stats['mean_return']:.3f}")
+            print(f"\n  [Seed {seed}] step {step:,} | "
+                  f"{task_str} | mean: {es['success_rate']*100:.2f}%\n", flush=True)
 
     env.close()
+    return (seed, seed_evals)
 
-    # ── 5. Save results ────────────────────────────────────────────────────────
+
+# ────────────────────────────────────── main ──────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--env",           default="pointmaze", help="Environment base name")
+    parser.add_argument("--task",          default="navigate",  help="Task name")
+    parser.add_argument("--dsize",         default="medium",    help="Dataset size/difficulty")
+    parser.add_argument("--train-step",    default=None, type=int,
+                        help=f"Gradient steps per seed (default: {DEFAULT_TRAIN_STEPS:,})")
+    parser.add_argument("--eval-interval", default=EVAL_INTERVAL, type=int,
+                        help="Evaluate every N steps (default: %(default)s)")
+    parser.add_argument("--slurm-tqdm",    default=True,
+                        action=argparse.BooleanOptionalAction,
+                        help="Print every 10 k steps instead of tqdm (Slurm mode)")
+    parser.add_argument("--single-seed",   type=int, nargs="?", const=42, default=None,
+                        metavar="SEED",
+                        help="Run with a single seed (default 42 if flag given without value)")
+    parser.add_argument("--seeds",         type=int, nargs="+", default=None,
+                        metavar="SEED",
+                        help="Explicit list of seeds to run sequentially, e.g. --seeds 42 0. "
+                             "Ignored if --single-seed is set. "
+                             "Recommended: split the default 4 seeds across 2 GPU jobs "
+                             "(--seeds 42 0  in job1, --seeds 1 2  in job2) to stay within "
+                             "MaxJobs=2 / GrpTRES=gres/gpu=2 Slurm limits while keeping "
+                             "each job under the 8-hour wall-time limit.")
+    parser.add_argument("--visual-enabled", action="store_true",
+                        help="Enable visual encoder + discrete actor (required for "
+                             "powderworld-* environments)")
+    parser.add_argument("--parallel-seeds", action="store_true",
+                        help="Run all seeds concurrently in separate processes "
+                             "(each reloads the dataset; ~N-seed wall-clock speedup). "
+                             "Offline RL has no env interaction during training, so "
+                             "seeds are fully independent and safe to parallelise.")
+    args = parser.parse_args()
+
+    env_name    = f"{args.env}-{args.dsize}-{args.task}-v0"
+    cfg         = get_config(env_name)
+    train_steps = args.train_step if args.train_step is not None else DEFAULT_TRAIN_STEPS
+    eval_intv   = args.eval_interval
+    if args.single_seed is not None:
+        seeds = [args.single_seed]
+    elif args.seeds is not None:
+        seeds = args.seeds
+    else:
+        seeds = SEEDS
+    is_visual   = args.visual_enabled
+    is_discrete = args.visual_enabled
+
+    print(f"\n{'='*60}")
+    print(f"CRL on OGBench: {env_name}")
+    print(f"  Seeds          : {seeds}"
+          f"{'  [parallel]' if args.parallel_seeds and len(seeds) > 1 else ''}")
+    print(f"  Train steps    : {train_steps:,} per seed  |  Eval every: {eval_intv:,}")
+    print(f"  Batch size     : {cfg.batch_size}  |  LR={cfg.lr}  "
+          f"gamma={cfg.discount}  alpha={cfg.alpha}")
+    print(f"  Hidden dims    : {HIDDEN_DIMS}  |  Latent dim: {LATENT_DIM}")
+    print(f"  Value goals    : geom(1-gamma) traj  (fixed)")
+    print(f"  Actor goals    : p_traj={cfg.actor_p_trajgoal}  "
+          f"p_rand={cfg.actor_p_randomgoal}")
+    if is_visual:
+        print(f"  Visual encoder : ImpalaSmall  |  Discrete AWR actor (temp={EVAL_TEMPERATURE})")
+    print(f"{'='*60}\n")
+
+    # ── 1. Load environment + dataset (shared across all seeds) ───────────────
+    print("Loading environment and dataset ...")
+    env, train_dataset, _ = ogbench.make_env_and_datasets(
+        env_name, dataset_dir=DATASET_DIR, compact_dataset=False,
+    )
+    obs = train_dataset["observations"]
+    if is_visual:
+        obs_dim = ImpalaSmall.ENC_DIM
+        act_dim = int(train_dataset["actions"].max()) + 1
+    else:
+        obs_dim = obs.shape[1]
+        act_dim = train_dataset["actions"].shape[1]
+    print(f"  Train size: {len(obs):,}  |  "
+          f"obs_dim={obs_dim}  act_dim={act_dim}"
+          f"{'  (visual+discrete)' if is_visual else ''}\n")
+
+    # ── 2. Multi-seed training ─────────────────────────────────────────────────
+    # all_results[seed] = list of (step, per_task_success_list, overall_rate)
+    all_results: dict = {}
+
+    # Shared worker kwargs (seed-specific 'seed' key is filled per iteration/spawn)
+    _worker_base = dict(
+        env_name      = env_name,
+        cfg           = cfg,
+        train_steps   = train_steps,
+        eval_intv     = eval_intv,
+        is_visual     = is_visual,
+        is_discrete   = is_discrete,
+        obs_dim       = obs_dim,
+        act_dim       = act_dim,
+        dataset_dir   = DATASET_DIR,
+        eval_episodes = cfg.eval_episodes,
+    )
+
+    if args.parallel_seeds and len(seeds) > 1:
+        # ── Parallel path: one subprocess per seed ────────────────────────────
+        env.close()   # main process does not need its env instance
+        worker_args = [{**_worker_base, 'seed': s, 'device': 'cpu',
+                        'train_dataset': train_dataset} for s in seeds]
+        ctx = mp.get_context('spawn')
+        print(f"Launching {len(seeds)} parallel seed workers "
+              f"(spawn context, each reloads dataset, device=cpu) ...\n")
+        with ctx.Pool(processes=len(seeds)) as pool:
+            results = pool.map(_crl_seed_worker, worker_args)
+        all_results = dict(results)
+
+    else:
+        # ── Sequential path (original behaviour) ──────────────────────────────
+        for seed_idx, seed in enumerate(seeds):
+            print(f"\n{'─'*60}")
+            print(f"Seed {seed}  ({seed_idx + 1}/{len(seeds)})")
+            print(f"{'─'*60}")
+
+            torch.manual_seed(seed)
+            np.random.seed(seed)
+
+            agent      = CRL(obs_dim, act_dim, alpha=cfg.alpha,
+                             is_visual=is_visual, is_discrete=is_discrete)
+            gc_dataset = GCDataset(
+                train_dataset,
+                discount           = cfg.discount,
+                actor_p_trajgoal   = cfg.actor_p_trajgoal,
+                actor_p_randomgoal = cfg.actor_p_randomgoal,
+            )
+
+            seed_evals = []   # (step, per_task_success_list, overall_rate)
+
+            if args.slurm_tqdm:
+                for step in range(1, train_steps + 1):
+                    batch  = gc_dataset.sample(cfg.batch_size)
+                    losses = agent.update(batch)
+                    if step % 10_000 == 0:
+                        print(f"  step {step:>8,}/{train_steps:,} | "
+                              f"C={losses['c_loss']:.4f}  "
+                              f"A={losses['a_loss']:.4f}")
+                    if step % eval_intv == 0:
+                        es = evaluate(env, agent, cfg.eval_episodes)
+                        seed_evals.append((step, es['per_task_success'], es['success_rate']))
+                        task_str = "  ".join(
+                            f"T{i+1}:{sr*100:.1f}%"
+                            for i, sr in enumerate(es['per_task_success'])
+                        )
+                        print(f"\n  [Seed {seed}] step {step:,} | "
+                              f"{task_str} | mean: {es['success_rate']*100:.2f}%\n")
+            else:
+                pbar = tqdm(range(1, train_steps + 1), desc=f"Seed {seed}", unit="step")
+                for step in pbar:
+                    batch  = gc_dataset.sample(cfg.batch_size)
+                    losses = agent.update(batch)
+                    pbar.set_postfix(C=f"{losses['c_loss']:.4f}",
+                                     A=f"{losses['a_loss']:.4f}")
+                    if step % eval_intv == 0:
+                        es = evaluate(env, agent, cfg.eval_episodes)
+                        seed_evals.append((step, es['per_task_success'], es['success_rate']))
+                        pbar.write(f"  [Seed {seed}] step {step:,} | "
+                                   f"mean: {es['success_rate']*100:.2f}%")
+
+            all_results[seed] = seed_evals
+
+        env.close()
+
+    # ── 3. Summary statistics ──────────────────────────────────────────────────
+    # Average over the last 3 eval checkpoints (300 k, 400 k, 500 k by default).
+    seed_avg_rates:    list = []
+    seed_avg_per_task: list = []
+
+    for seed in seeds:
+        evals = all_results[seed]
+        last3 = evals[-3:]
+        seed_avg_rates.append(float(np.mean([e[2] for e in last3])))
+        n_tasks = len(last3[0][1])
+        seed_avg_per_task.append(
+            [float(np.mean([e[1][t] for e in last3])) for t in range(n_tasks)]
+        )
+
+    final_mean = float(np.mean(seed_avg_rates))
+    final_std  = float(np.std(seed_avg_rates))
+
+    n_tasks       = len(seed_avg_per_task[0])
+    per_task_mean = [
+        float(np.mean([seed_avg_per_task[i][t] for i in range(len(seeds))]))
+        for t in range(n_tasks)
+    ]
+    per_task_std  = [
+        float(np.std( [seed_avg_per_task[i][t] for i in range(len(seeds))]))
+        for t in range(n_tasks)
+    ]
+    last_ckpts = [e[0] for e in all_results[seeds[0]][-3:]]
+
+    # ── 4. Print report ───────────────────────────────────────────────────────
+    print(f"\n{'='*60}")
+    print(f"FINAL RESULTS -- CRL -- {env_name}")
+    print(f"Avg over last 3 checkpoints: {last_ckpts}")
+    print(f"{'='*60}")
+    for seed, rate in zip(seeds, seed_avg_rates):
+        print(f"  Seed {seed:>3}: {rate * 100:.2f}%")
+    print(f"  {'─'*34}")
+    print(f"  Mean +/- Std : {final_mean*100:.2f}% +/- {final_std*100:.2f}%")
+    print(f"\nPer-task breakdown (mean +/- std across {len(seeds)} seeds):")
+    for t, (m, s) in enumerate(zip(per_task_mean, per_task_std), start=1):
+        print(f"  Task {t}: {m*100:.2f}% +/- {s*100:.2f}%")
+
+    # ── 5. Save results ───────────────────────────────────────────────────────
     timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
-    out_path  = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                             f"results_{timestamp}.txt")
+    out_path  = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        f"results_crl_{args.env}_{args.dsize}_{args.task}_{timestamp}.txt",
+    )
     with open(out_path, "w") as f:
-        f.write(f"--env {args.env} --task {args.task} --dsize {args.dsize} "
-                f"--train-step {train_steps}\n")
+        f.write(f"method: CRL\n")
+        f.write(f"env: {env_name}\n")
+        f.write(f"seeds: {seeds}\n")
+        f.write(f"train_steps_per_seed: {train_steps}\n")
+        f.write(f"eval_interval: {eval_intv}\n")
+        f.write(f"last_3_checkpoints: {last_ckpts}\n")
         f.write(f"alpha={cfg.alpha}  discount={cfg.discount}  "
                 f"actor_p_traj={cfg.actor_p_trajgoal}  "
-                f"actor_p_rand={cfg.actor_p_randomgoal}\n")
-        f.write(f"success_rate: {eval_stats['success_rate'] * 100:.2f}%\n")
-        for i, sr in enumerate(eval_stats['per_task_success'], start=1):
-            f.write(f"  task{i}: {sr * 100:.2f}%\n")
+                f"actor_p_rand={cfg.actor_p_randomgoal}\n\n")
+
+        for seed in seeds:
+            f.write(f"Seed {seed}:\n")
+            for step, per_task, overall in all_results[seed]:
+                task_str = "  ".join(
+                    f"T{i+1}:{sr*100:.1f}%" for i, sr in enumerate(per_task)
+                )
+                f.write(f"  step {step:>8,}: {task_str} | mean: {overall*100:.2f}%\n")
+            idx = seeds.index(seed)
+            f.write(f"  --> avg (last 3 ckpts): {seed_avg_rates[idx]*100:.2f}%\n\n")
+
+        f.write(f"Summary (avg over last 3 checkpoints, "
+                f"mean +/- std across {len(seeds)} seeds):\n")
+        f.write(f"  Mean: {final_mean*100:.2f}%\n")
+        f.write(f"  Std : {final_std*100:.2f}%\n\n")
+        f.write(f"Per-task breakdown (mean +/- std across seeds):\n")
+        for t, (m, s) in enumerate(zip(per_task_mean, per_task_std), start=1):
+            f.write(f"  Task {t}: {m*100:.2f}% +/- {s*100:.2f}%\n")
+
     print(f"\nResults saved to {out_path}")
-    print("Test passed.")
 
 
 if __name__ == "__main__":

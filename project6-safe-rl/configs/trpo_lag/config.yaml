@@ -1,4 +1,4 @@
-algo: PPOLag
+algo: TRPOLag
 seed: 0
 env_id: SafetyPointGoal1-v0
 train_cfgs:
@@ -13,10 +13,11 @@ algo_cfgs:
   cost_gamma: 0.99
   lam: 0.97
   lam_c: 0.97
-  clip: 0.2
+  #clip: 0.2
   target_kl: 0.01
-  entropy_coef: 0.0
-  update_iters: 80
+  cg_damping: 0.1
+  #entropy_coef: 0.0
+  update_iters: 50
 lagrange_cfgs: 
   cost_limit: 25.0
   lagrangian_multiplier_init: 1.0

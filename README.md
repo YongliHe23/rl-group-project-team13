@@ -24,14 +24,9 @@ bash scripts/run_iql.sh
 
 ### Project 6 — Safe RL
 
-```bash
-conda create -n saferl python=3.10
-conda activate saferl
-cd project6-safe-rl
-pip install -r requirements.txt
-# run a baseline
-bash scripts/run_cpo.sh
-```
+Please use the provided `train_` scripts in `scipts` folder. 
+
+To use command line, please refer to the Omnisafe documentation.
 
 ## Report
 
