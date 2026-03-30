@@ -609,6 +609,9 @@ def main():
                              "(each reloads the dataset; ~N-seed wall-clock speedup). "
                              "Offline RL has no env interaction during training, so "
                              "seeds are fully independent and safe to parallelise.")
+    parser.add_argument("--output-dir",    default=".",
+                        help="Directory to write the results .txt file "
+                             "(default: current working directory). Created if absent.")
     args = parser.parse_args()
 
     env_name    = f"{args.env}-{args.dsize}-{args.task}-v0"
@@ -784,8 +787,9 @@ def main():
 
     # ── 5. Save results ───────────────────────────────────────────────────────
     timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
-    out_path  = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
+    os.makedirs(args.output_dir, exist_ok=True)
+    out_path  = os.path.join( #os.path.dirname(os.path.abspath(__file__)),
+        args.output_dir,
         f"results_qrl_{args.env}_{args.dsize}_{args.task}_{timestamp}.txt",
     )
     with open(out_path, "w") as f:
