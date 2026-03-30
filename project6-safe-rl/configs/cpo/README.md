@@ -74,29 +74,14 @@ This config targets Safety-Gymnasium's native `SafetyPointCircle1-v0`, whose reg
 
 - The original code was built on rllab. This setup uses OmniSafe.
 - The original code used `GaussianMLPPolicy` and separate `GaussianMLPBaseline` objects. OmniSafe uses its own actor-critic implementation.
-- The original reward baseline and safety baseline used a conjugate-gradient regressor optimizer. OmniSafe critics are trained through its own critic update path instead of reproducing those exact baseline internals.
-- The original optimizer code used `reg_coeff=1e-5` and `subsample_factor=0.2`. In OmniSafe, the closest mapping is `cg_damping=1e-5` and `fvp_sample_freq=5`.
 - The original implementation did not use OmniSafe defaults such as observation normalization, critic norm regularization, or linear LR decay. These were disabled where possible to stay closer to the original experiment.
-- Weight initialization is only approximated. OmniSafe does not expose the original rllab initializer stack directly, so the config uses the closest available built-in option.
-- Advantage handling is matched as closely as possible through OmniSafe’s available settings, but the internal update pipeline is still OmniSafe’s implementation rather than the original one.
-- `vector_env_nums = 4` and `torch_threads = 1` are runtime choices benchmarked on this machine. They are not paper-specified hyperparameters.
-- The Point Gather config runs on an adapted custom environment whose spatial scale was changed to fit Safety-Gymnasium's `Point` dynamics.
-- The Point Circle config targets Safety-Gymnasium's native `SafetyPointCircle1-v0`, which is not the exact same environment implementation as the original paper's Circle task.
-- Safety-Gymnasium's native Point Circle environment uses its own episode-length and wrapper behavior, so the config is closer to the paper at the optimizer/workload level than at the environment level.
-- The current Safety-Gymnasium install does not register `SafetyHumanoidCircle*`, so this folder does not currently provide a Humanoid-Circle CPO config.
-
-## What This Means for Reproduction
-
-These configs should be treated as:
-
-- close to the original CPO experiments at the hyperparameter level
-- not an exact port of the original algorithm implementation
-- dependent on modern OmniSafe and Safety-Gymnasium environment behavior
-- useful for best-effort reproduction attempts, but not enough on their own to claim paper-faithful results
-
-For Point Gather specifically, the current config is paper-matched at the algorithm level, but the environment is now an adapted, scaled port rather than a same-scale copy of the original benchmark.
+- `vector_env_nums = 4` and `torch_threads = 1` are runtime choices benchmarked on my (chris') machine, change as needed.
+- The Point Gather config runs on an adapted custom environment whose spatial scale was changed to fit Safety-Gymnasium's `Point` dynamics. Although the agent learns in this environement, we are not able to replicate the results on our custom gather environment. This should therefor be used with caution.
+- The Point Circle config targets Safety-Gymnasium's native `SafetyPointCircle1-v0`, which is not the exact same environment implementation as the original paper's Circle task. However, the docs for Safety-Gymnasium cite the orignal CPO paper as inspiration for this environment so we believe this is a close adaptation.
+- For comparison with other algorithms we report plots based on environement steps instead of "iters", but we trained with the equalivalent steps.
 
 ## Files
 
 - `config_point_gather.yaml`: main CPO config for the paper-style Point Gather run
 - `config_point_circle.yaml`: main CPO config for a native Safety-Gymnasium Point Circle run
+x
