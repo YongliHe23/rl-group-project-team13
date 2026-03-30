@@ -665,8 +665,14 @@ def _hiql_seed_worker(kwargs: dict):
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    env, train_dataset, _ = ogbench.make_env_and_datasets(
-        env_name, dataset_dir=dataset_dir, compact_dataset=False)
+    # Use the dataset passed from the main process to avoid re-reading from
+    # the shared filesystem (NFS/Lustre I/O contention with 4 concurrent readers
+    # can stall for tens of minutes on HPC clusters).
+    # Only create the env (fast: just MuJoCo model init, no disk I/O for dataset).
+    train_dataset = kwargs['train_dataset']
+    print(f"  [Seed {seed}] creating env (env_only, no dataset reload) ...", flush=True)
+    env = ogbench.make_env_and_datasets(env_name, dataset_dir=dataset_dir, env_only=True)
+    print(f"  [Seed {seed}] env ready, building agent ...", flush=True)
 
     agent = HIQL(
         obs_dim, act_dim,
@@ -687,6 +693,7 @@ def _hiql_seed_worker(kwargs: dict):
         value_p_trajgoal   = cfg.value_p_trajgoal,
         value_p_randomgoal = cfg.value_p_randomgoal,
     )
+    print(f"  [Seed {seed}] starting training loop (print every 10k steps) ...", flush=True)
 
     seed_evals = []
     for step in range(1, train_steps + 1):
@@ -808,7 +815,8 @@ def main():
         # allowed at a time).  Evaluation (MuJoCo, CPU-bound) is the dominant
         # cost (~90 % of wall time) and parallelises freely across CPU cores.
         env.close()   # main process does not need its env instance
-        worker_args = [{**_worker_base, 'seed': s, 'device': 'cpu'} for s in seeds]
+        worker_args = [{**_worker_base, 'seed': s, 'device': 'cpu',
+                        'train_dataset': train_dataset} for s in seeds]
         ctx = mp.get_context('spawn')
         print(f"Launching {len(seeds)} parallel seed workers "
               f"(spawn context, each reloads dataset, device=cpu) ...\n")

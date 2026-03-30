@@ -493,8 +493,10 @@ def _crl_seed_worker(kwargs: dict):
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    env, train_dataset, _ = ogbench.make_env_and_datasets(
-        env_name, dataset_dir=dataset_dir, compact_dataset=False)
+    train_dataset = kwargs['train_dataset']
+    print(f"  [Seed {seed}] creating env (env_only, no dataset reload) ...", flush=True)
+    env = ogbench.make_env_and_datasets(env_name, dataset_dir=dataset_dir, env_only=True)
+    print(f"  [Seed {seed}] env ready, building agent ...", flush=True)
 
     agent      = CRL(obs_dim, act_dim, alpha=cfg.alpha,
                      is_visual=is_visual, is_discrete=is_discrete)
@@ -504,6 +506,7 @@ def _crl_seed_worker(kwargs: dict):
         actor_p_trajgoal   = cfg.actor_p_trajgoal,
         actor_p_randomgoal = cfg.actor_p_randomgoal,
     )
+    print(f"  [Seed {seed}] starting training loop (print every 10k steps) ...", flush=True)
 
     seed_evals = []
     for step in range(1, train_steps + 1):
@@ -614,7 +617,8 @@ def main():
     if args.parallel_seeds and len(seeds) > 1:
         # ── Parallel path: one subprocess per seed ────────────────────────────
         env.close()   # main process does not need its env instance
-        worker_args = [{**_worker_base, 'seed': s, 'device': 'cpu'} for s in seeds]
+        worker_args = [{**_worker_base, 'seed': s, 'device': 'cpu',
+                        'train_dataset': train_dataset} for s in seeds]
         ctx = mp.get_context('spawn')
         print(f"Launching {len(seeds)} parallel seed workers "
               f"(spawn context, each reloads dataset, device=cpu) ...\n")
