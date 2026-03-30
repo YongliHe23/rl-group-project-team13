@@ -26,7 +26,7 @@ NotImplementedError at runtime (requires impala_small CNN encoder).
 _BASE = dict(
     lr              = 3e-4,
     batch_size      = 1024,
-    train_steps     = 1_000_000,
+    train_steps     = 500_000,
     eval_episodes   = 50,
     discount        = 0.99,         # used only if actor_geom_sample=True (it's False)
     alpha           = 0.003,        # DDPG+BC BC coefficient
@@ -101,22 +101,19 @@ _ENV_CONFIGS = {
     "antsoccer-medium-stitch-v0":      dict(alpha=0.003,
                                             actor_p_trajgoal=0.5, actor_p_randomgoal=0.5),
     # ── Manipulation (cube / scene / puzzle) ──────────────────────────────────
-    "cube-single-play-v0":    dict(alpha=0.3),
-    "cube-double-play-v0":    dict(alpha=0.3),
-    "cube-triple-play-v0":    dict(alpha=0.3),
-    "cube-quadruple-play-v0": dict(alpha=0.3),
-    "scene-play-v0":          dict(alpha=0.3),
-    "puzzle-3x3-play-v0":     dict(alpha=0.3),
-    "puzzle-4x4-play-v0":     dict(alpha=0.3),
-    "puzzle-4x5-play-v0":     dict(alpha=0.3),
-    "puzzle-4x6-play-v0":     dict(alpha=0.3),
-    # ── Powderworld — NOT SUPPORTED (discrete actions + visual encoder + AWR) ─
-    "powderworld-easy-play-v0":   dict(_unsupported=True,
-                                       alpha=3.0, train_steps=500_000),
-    "powderworld-medium-play-v0": dict(_unsupported=True,
-                                       alpha=3.0, train_steps=500_000),
-    "powderworld-hard-play-v0":   dict(_unsupported=True,
-                                       alpha=3.0, train_steps=500_000),
+    "cube-single-play-v0":    dict(alpha=0.3, train_steps=1000000),
+    "cube-double-play-v0":    dict(alpha=0.3, train_steps=1000000),
+    "cube-triple-play-v0":    dict(alpha=0.3, train_steps=1000000),
+    "cube-quadruple-play-v0": dict(alpha=0.3, train_steps=1000000),
+    "scene-play-v0":          dict(alpha=0.3, train_steps=1000000),
+    "puzzle-3x3-play-v0":     dict(alpha=0.3, train_steps=1000000),
+    "puzzle-4x4-play-v0":     dict(alpha=0.3, train_steps=1000000),
+    "puzzle-4x5-play-v0":     dict(alpha=0.3, train_steps=1000000),
+    "puzzle-4x6-play-v0":     dict(alpha=0.3, train_steps=1000000),
+    # ── Powderworld — supported via --visual-enabled flag ─────────────────────
+    "powderworld-easy-play-v0":   dict(alpha=3.0, train_steps=500_000),
+    "powderworld-medium-play-v0": dict(alpha=3.0, train_steps=500_000),
+    "powderworld-hard-play-v0":   dict(alpha=3.0, train_steps=500_000),
     # ── Visual AntMaze — NOT SUPPORTED (requires impala_small visual encoder) ─
     # Hyperparameters mirror state-based antmaze counterparts.
     "visual-antmaze-medium-navigate-v0":   dict(_unsupported=True, alpha=0.003),
