@@ -547,6 +547,14 @@ def main():
     parser.add_argument("--single-seed",   type=int, nargs="?", const=42, default=None,
                         metavar="SEED",
                         help="Run with a single seed (default 42 if flag given without value)")
+    parser.add_argument("--seeds",         type=int, nargs="+", default=None,
+                        metavar="SEED",
+                        help="Explicit list of seeds to run sequentially, e.g. --seeds 42 0. "
+                             "Ignored if --single-seed is set. "
+                             "Recommended: split the default 4 seeds across 2 GPU jobs "
+                             "(--seeds 42 0  in job1, --seeds 1 2  in job2) to stay within "
+                             "MaxJobs=2 / GrpTRES=gres/gpu=2 Slurm limits while keeping "
+                             "each job under the 8-hour wall-time limit.")
     parser.add_argument("--visual-enabled", action="store_true",
                         help="Enable visual encoder + discrete actor (required for "
                              "powderworld-* environments)")
@@ -561,7 +569,12 @@ def main():
     cfg         = get_config(env_name)
     train_steps = args.train_step if args.train_step is not None else DEFAULT_TRAIN_STEPS
     eval_intv   = args.eval_interval
-    seeds       = [args.single_seed] if args.single_seed is not None else SEEDS
+    if args.single_seed is not None:
+        seeds = [args.single_seed]
+    elif args.seeds is not None:
+        seeds = args.seeds
+    else:
+        seeds = SEEDS
     is_visual   = args.visual_enabled
     is_discrete = args.visual_enabled
 

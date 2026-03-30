@@ -20,6 +20,7 @@ References:
 import argparse
 import multiprocessing as mp
 import os
+import time
 from datetime import datetime
 import numpy as np
 import torch
@@ -696,9 +697,16 @@ def _hiql_seed_worker(kwargs: dict):
     print(f"  [Seed {seed}] starting training loop (print every 10k steps) ...", flush=True)
 
     seed_evals = []
+    _t_loop_start = time.time()
     for step in range(1, train_steps + 1):
         batch  = gc_dataset.sample(cfg.batch_size)
         losses = agent.update(batch)
+        if step == 100:
+            elapsed = time.time() - _t_loop_start
+            ms_per_step = elapsed / 100 * 1000
+            eta_h = ms_per_step * train_steps / 1000 / 3600
+            print(f"  [Seed {seed}] step 100 done | {ms_per_step:.1f} ms/step | "
+                  f"ETA ~{eta_h:.1f} h for {train_steps:,} steps", flush=True)
         if step % 10_000 == 0:
             print(f"  [Seed {seed}] step {step:>8,}/{train_steps:,} | "
                   f"V={losses['v_loss']:.4f}  "
@@ -735,6 +743,14 @@ def main():
     parser.add_argument("--single-seed",   type=int, nargs="?", const=42, default=None,
                         metavar="SEED",
                         help="Run with a single seed (default 42 if flag given without value)")
+    parser.add_argument("--seeds",         type=int, nargs="+", default=None,
+                        metavar="SEED",
+                        help="Explicit list of seeds to run sequentially, e.g. --seeds 42 0. "
+                             "Ignored if --single-seed is set. "
+                             "Recommended: split the default 4 seeds across 2 GPU jobs "
+                             "(--seeds 42 0  in job1, --seeds 1 2  in job2) to stay within "
+                             "MaxJobs=2 / GrpTRES=gres/gpu=2 Slurm limits while keeping "
+                             "each job under the 8-hour wall-time limit.")
     parser.add_argument("--visual-enabled", action="store_true",
                         help="Enable visual encoder + discrete actor (required for "
                              "powderworld-* environments)")
@@ -749,7 +765,12 @@ def main():
     cfg         = get_config(env_name)
     train_steps = args.train_step if args.train_step is not None else DEFAULT_TRAIN_STEPS
     eval_intv   = args.eval_interval
-    seeds       = [args.single_seed] if args.single_seed is not None else SEEDS
+    if args.single_seed is not None:
+        seeds = [args.single_seed]
+    elif args.seeds is not None:
+        seeds = args.seeds
+    else:
+        seeds = SEEDS
 
     # Powderworld: observations are (32,32,6) uint8 images; actions are discrete ints.
     is_visual   = args.visual_enabled
