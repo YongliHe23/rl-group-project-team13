@@ -21,6 +21,7 @@ import argparse
 import math
 import multiprocessing as mp
 import os
+import time
 from datetime import datetime
 
 import numpy as np
@@ -509,9 +510,16 @@ def _crl_seed_worker(kwargs: dict):
     print(f"  [Seed {seed}] starting training loop (print every 10k steps) ...", flush=True)
 
     seed_evals = []
+    _t_loop_start = time.time()
     for step in range(1, train_steps + 1):
         batch  = gc_dataset.sample(cfg.batch_size)
         losses = agent.update(batch)
+        if step == 100:
+            elapsed = time.time() - _t_loop_start
+            ms_per_step = elapsed / 100 * 1000
+            eta_h = ms_per_step * train_steps / 1000 / 3600
+            print(f"  [Seed {seed}] step 100 done | {ms_per_step:.1f} ms/step | "
+                  f"ETA ~{eta_h:.1f} h for {train_steps:,} steps", flush=True)
         if step % 10_000 == 0:
             print(f"  [Seed {seed}] step {step:>8,}/{train_steps:,} | "
                   f"C={losses['c_loss']:.4f}  "
@@ -664,9 +672,16 @@ def main():
             seed_evals = []   # (step, per_task_success_list, overall_rate)
 
             if args.slurm_tqdm:
+                _t_loop_start = time.time()
                 for step in range(1, train_steps + 1):
                     batch  = gc_dataset.sample(cfg.batch_size)
                     losses = agent.update(batch)
+                    if step == 100:
+                        elapsed = time.time() - _t_loop_start
+                        ms_per_step = elapsed / 100 * 1000
+                        eta_h = ms_per_step * train_steps / 1000 / 3600
+                        print(f"  [Seed {seed}] step 100 done | {ms_per_step:.1f} ms/step | "
+                              f"ETA ~{eta_h:.1f} h for {train_steps:,} steps")
                     if step % 10_000 == 0:
                         print(f"  step {step:>8,}/{train_steps:,} | "
                               f"C={losses['c_loss']:.4f}  "
