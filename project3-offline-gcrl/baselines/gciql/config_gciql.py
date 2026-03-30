@@ -41,6 +41,8 @@ _BASE = dict(
     actor_p_trajgoal    = 1.0,        # navigate: uniform traj
     actor_p_randomgoal  = 0.0,
     actor_geom_sample   = False,
+    # Eval
+    eval_temperature    = 0,
     # Misc
     const_std           = True,
     discrete            = False,
@@ -111,16 +113,26 @@ _ENV_CONFIGS = {
                                             actor_p_trajgoal=0.5, actor_p_randomgoal=0.5),
     "antsoccer-medium-stitch-v0":      dict(alpha=0.1,
                                             actor_p_trajgoal=0.5, actor_p_randomgoal=0.5),
+    # ── Powderworld ───────────────────────────────────────────────────────────
+    "powderworld-easy-play-v0":   dict(actor_loss='awr', alpha=3.0, batch_size=256,
+                                       discrete=True, encoder='impala_small',
+                                       eval_temperature=0.3),
+    "powderworld-medium-play-v0": dict(actor_loss='awr', alpha=3.0, batch_size=256,
+                                       discrete=True, encoder='impala_small',
+                                       eval_temperature=0.3),
+    "powderworld-hard-play-v0":   dict(actor_loss='awr', alpha=3.0, batch_size=256,
+                                       discrete=True, encoder='impala_small',
+                                       eval_temperature=0.3),
     # ── Manipulation ──────────────────────────────────────────────────────────
-    "cube-single-play-v0":    dict(alpha=0.3),
-    "cube-double-play-v0":    dict(alpha=0.3),
-    "cube-triple-play-v0":    dict(alpha=0.3),
-    "cube-quadruple-play-v0": dict(alpha=0.3),
-    "scene-play-v0":          dict(alpha=0.3),
-    "puzzle-3x3-play-v0":     dict(alpha=0.3),
-    "puzzle-4x4-play-v0":     dict(alpha=0.3),
-    "puzzle-4x5-play-v0":     dict(alpha=0.3),
-    "puzzle-4x6-play-v0":     dict(alpha=0.3),
+    "cube-single-play-v0":    dict(alpha=1.0),
+    "cube-double-play-v0":    dict(alpha=1.0),
+    "cube-triple-play-v0":    dict(alpha=1.0),
+    "cube-quadruple-play-v0": dict(alpha=1.0),
+    "scene-play-v0":          dict(alpha=1.0),
+    "puzzle-3x3-play-v0":     dict(alpha=1.0),
+    "puzzle-4x4-play-v0":     dict(alpha=1.0),
+    "puzzle-4x5-play-v0":     dict(alpha=1.0),
+    "puzzle-4x6-play-v0":     dict(alpha=1.0),
 }
 
 
