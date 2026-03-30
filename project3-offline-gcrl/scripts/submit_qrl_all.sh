@@ -1,5 +1,5 @@
 #!/bin/bash
-# Submit one SLURM job per GCIQL dataset.
+# Submit one SLURM job per QRL dataset.
 # Usage: bash submit_qrl_all.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,7 +22,7 @@ for job in "${jobs[@]}"; do
   read -r env task dsize <<< "$job"
   dataset="${env}-${dsize}-${task}-v0"
   echo "Submitting: $dataset"
-  sbatch --job-name="gciql-${env}-${dsize}-${task}" \
+  sbatch --job-name="qrl-${env}-${dsize}-${task}" \
          --export=ALL,ENV="$env",TASK="$task",DSIZE="$dsize" \
          "$SLURM_SCRIPT"
 done
