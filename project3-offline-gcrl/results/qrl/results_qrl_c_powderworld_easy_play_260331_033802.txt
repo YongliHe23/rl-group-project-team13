@@ -1,0 +1,33 @@
+method: QRL (OGBench canonical)
+env: powderworld-easy-play-v0
+seeds: [1]
+train_steps_per_seed: 1000000
+eval_interval: 100000
+final_window: 3
+last_3_checkpoints: [800000, 900000, 1000000]
+alpha=3.0  lam_eps=0.05  discount=0.99
+actor_p_traj=1.0  actor_p_rand=0.0
+
+Seed 1:
+  step  100,000: T1:0.0%  T2:0.0%  T3:0.0%  T4:0.0%  T5:0.0% | mean: 0.00%
+  step  200,000: T1:0.0%  T2:0.0%  T3:0.0%  T4:0.0%  T5:0.0% | mean: 0.00%
+  step  300,000: T1:0.0%  T2:0.0%  T3:0.0%  T4:0.0%  T5:0.0% | mean: 0.00%
+  step  400,000: T1:0.0%  T2:0.0%  T3:0.0%  T4:0.0%  T5:0.0% | mean: 0.00%
+  step  500,000: T1:0.0%  T2:0.0%  T3:0.0%  T4:0.0%  T5:0.0% | mean: 0.00%
+  step  600,000: T1:0.0%  T2:0.0%  T3:0.0%  T4:0.0%  T5:0.0% | mean: 0.00%
+  step  700,000: T1:0.0%  T2:0.0%  T3:0.0%  T4:0.0%  T5:0.0% | mean: 0.00%
+  step  800,000: T1:0.0%  T2:0.0%  T3:0.0%  T4:0.0%  T5:0.0% | mean: 0.00%
+  step  900,000: T1:0.0%  T2:0.0%  T3:0.0%  T4:0.0%  T5:0.0% | mean: 0.00%
+  step 1,000,000: T1:0.0%  T2:0.0%  T3:0.0%  T4:0.0%  T5:0.0% | mean: 0.00%
+  --> avg (last 3 ckpts): 0.00%
+
+Summary (avg over last 3 checkpoints, mean +/- std across 1 seeds):
+  Mean: 0.00%
+  Std : 0.00%
+
+Per-task breakdown (mean +/- std across seeds):
+  Task 1: 0.00% +/- 0.00%
+  Task 2: 0.00% +/- 0.00%
+  Task 3: 0.00% +/- 0.00%
+  Task 4: 0.00% +/- 0.00%
+  Task 5: 0.00% +/- 0.00%

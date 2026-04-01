@@ -1,0 +1,12 @@
+env=antmaze-medium-explore-v0  train_steps=500000  seeds=[0, 1, 2, 3]
+alpha=10.0  discount=0.99  expectile=0.9
+actor_p_traj=0.0  actor_p_rand=1.0
+eval_interval=100000  final_window=3
+
+per_seed_final_scores:
+  seed0: 18.80%
+  seed1: 14.93%
+  seed2: 16.00%
+  seed3: 11.87%
+
+success_rate: 15.40 ± 2.48%

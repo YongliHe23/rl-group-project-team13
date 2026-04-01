@@ -1,0 +1,12 @@
+env=antsoccer-arena-navigate-v0  train_steps=500000  seeds=[0, 1, 2, 3]
+actor_loss=ddpgbc  alpha=0.1  discount=0.99  expectile=0.9
+actor_p_traj=1.0  actor_p_rand=0.0
+eval_interval=100000  final_window=3
+
+per_seed_final_scores:
+  seed0: 45.60%
+  seed1: 42.13%
+  seed2: 45.07%
+  seed3: 42.80%
+
+success_rate: 43.90 ± 1.46%

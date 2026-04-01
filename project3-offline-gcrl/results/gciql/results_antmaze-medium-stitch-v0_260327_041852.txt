@@ -1,0 +1,12 @@
+env=antmaze-medium-stitch-v0  train_steps=500000  seeds=[0, 1, 2, 3]
+actor_loss=ddpgbc  alpha=0.3  discount=0.99  expectile=0.9
+actor_p_traj=0.5  actor_p_rand=0.5
+eval_interval=100000  final_window=3
+
+per_seed_final_scores:
+  seed0: 40.27%
+  seed1: 33.47%
+  seed2: 33.73%
+  seed3: 33.73%
+
+success_rate: 35.30 ± 2.87%

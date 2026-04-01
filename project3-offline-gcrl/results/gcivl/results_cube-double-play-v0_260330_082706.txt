@@ -1,0 +1,12 @@
+env=cube-double-play-v0  train_steps=1000000  seeds=[0, 1, 2, 3]
+alpha=10.0  discount=0.99  expectile=0.9
+actor_p_traj=1.0  actor_p_rand=0.0
+eval_interval=100000  final_window=3
+
+per_seed_final_scores:
+  seed0: 31.60%
+  seed1: 34.93%
+  seed2: 29.73%
+  seed3: 33.47%
+
+success_rate: 32.43 ± 1.96%

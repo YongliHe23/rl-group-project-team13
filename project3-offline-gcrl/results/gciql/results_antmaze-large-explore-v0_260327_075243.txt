@@ -1,0 +1,12 @@
+env=antmaze-large-explore-v0  train_steps=500000  seeds=[0, 1, 2, 3]
+actor_loss=ddpgbc  alpha=0.01  discount=0.99  expectile=0.9
+actor_p_traj=0.0  actor_p_rand=1.0
+eval_interval=100000  final_window=3
+
+per_seed_final_scores:
+  seed0: 0.13%
+  seed1: 0.13%
+  seed2: 0.27%
+  seed3: 0.40%
+
+success_rate: 0.23 ± 0.11%

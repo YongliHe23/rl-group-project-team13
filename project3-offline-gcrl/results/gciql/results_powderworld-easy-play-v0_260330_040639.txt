@@ -1,0 +1,9 @@
+env=powderworld-easy-play-v0  train_steps=1000000  seeds=[2]
+actor_loss=awr  alpha=3.0  discount=0.99  expectile=0.9
+actor_p_traj=1.0  actor_p_rand=0.0
+eval_interval=100000  final_window=3
+
+per_seed_final_scores:
+  seed2: 99.33%
+
+success_rate: 99.33 ± 0.00%

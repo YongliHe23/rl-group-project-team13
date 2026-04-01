@@ -1,0 +1,12 @@
+env=puzzle-3x3-play-v0  train_steps=1000000  seeds=[0, 1, 2, 3]
+actor_loss=ddpgbc  alpha=1.0  discount=0.99  expectile=0.9
+actor_p_traj=1.0  actor_p_rand=0.0
+eval_interval=100000  final_window=3
+
+per_seed_final_scores:
+  seed0: 93.47%
+  seed1: 94.93%
+  seed2: 93.20%
+  seed3: 98.27%
+
+success_rate: 94.97 ± 2.02%
