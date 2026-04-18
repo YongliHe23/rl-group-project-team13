@@ -20,6 +20,8 @@ VENV_DIR=$WORKDIR/venv
 module purge
 module load python/3.10
 module load cuda/12.6.3
+# Make CUPTI available to PyTorch (fixes libcupti symbol errors)
+export LD_LIBRARY_PATH=$(dirname $(find /sw -name "libcupti.so.12" 2>/dev/null | head -1)):$LD_LIBRARY_PATH
 source "$VENV_DIR/bin/activate"
 
 RUN_DIR=$WORKDIR/runs/$SLURM_JOB_ID

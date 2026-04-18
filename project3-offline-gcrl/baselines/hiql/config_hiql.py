@@ -43,6 +43,7 @@ _BASE = dict(
     actor_p_trajgoal    = 1.0,      # navigate: uniform traj
     actor_p_randomgoal  = 0.0,
     actor_geom_sample   = False,
+    low_actor_rep_grad  = False,    # True for pixel envs (allows grad flow through goal rep)
 )
 
 # ── Per-environment overrides ──────────────────────────────────────────────────
@@ -126,12 +127,15 @@ _ENV_CONFIGS = {
     "puzzle-4x5-play-v0":     dict(high_alpha=3.0, low_alpha=3.0, subgoal_steps=10, train_steps=1000000),
     "puzzle-4x6-play-v0":     dict(high_alpha=3.0, low_alpha=3.0, subgoal_steps=10, train_steps=1000000),
     # ── Powderworld — supported via --visual-enabled flag ─────────────────────
-    "powderworld-easy-play-v0":   dict(high_alpha=3.0, low_alpha=3.0,
-                                       subgoal_steps=10, train_steps=500_000),
-    "powderworld-medium-play-v0": dict(high_alpha=3.0, low_alpha=3.0,
-                                       subgoal_steps=10, train_steps=500_000),
-    "powderworld-hard-play-v0":   dict(high_alpha=3.0, low_alpha=3.0,
-                                       subgoal_steps=10, train_steps=500_000),
+    "powderworld-easy-play-v0":   dict(batch_size=256, high_alpha=3.0, low_alpha=3.0,
+                                       low_actor_rep_grad=True, subgoal_steps=10,
+                                       train_steps=500_000),
+    "powderworld-medium-play-v0": dict(batch_size=256, high_alpha=3.0, low_alpha=3.0,
+                                       low_actor_rep_grad=True, subgoal_steps=10,
+                                       train_steps=500_000),
+    "powderworld-hard-play-v0":   dict(batch_size=256, high_alpha=3.0, low_alpha=3.0,
+                                       low_actor_rep_grad=True, subgoal_steps=10,
+                                       train_steps=500_000),
     # ── Visual AntMaze — NOT SUPPORTED (requires impala_small visual encoder) ─
     # subgoal_steps=25 (antmaze locomotion scale); hyperparams mirror state-based.
     "visual-antmaze-medium-navigate-v0":   dict(_unsupported=True,

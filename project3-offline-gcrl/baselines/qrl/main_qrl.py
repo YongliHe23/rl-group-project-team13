@@ -83,11 +83,24 @@ def build_agent_config(
     agent_cfg.actor_geom_sample   = cfg.actor_geom_sample
 
     # ── environment modality ───────────────────────────────────────────────────
-    agent_cfg.discrete = is_discrete
-    agent_cfg.encoder  = 'impala_small' if is_visual else None
+    agent_cfg.discrete    = is_discrete
+    agent_cfg.encoder     = 'impala_small' if is_visual else None
+    agent_cfg.actor_loss  = cfg.actor_loss
 
     agent_cfg.lock()
     return agent_cfg
+
+
+def expand_discrete_actions(batch: dict) -> dict:
+    """Expand 1D discrete actions to 2D so QRL dynamics can concatenate them.
+
+    Only needed for actor_loss='ddpgbc' (dynamics model path).
+    For actor_loss='awr', actions must remain 1D for categorical log_prob.
+    """
+    if batch['actions'].ndim == 1:
+        batch = dict(batch)
+        batch['actions'] = batch['actions'][:, None]
+    return batch
 
 
 def eval_all_tasks(
@@ -152,7 +165,7 @@ def _qrl_c_seed_worker(kwargs: dict):
 
     ex_actions = train_raw['actions'][:1]
     if is_discrete:
-        ex_actions = np.full_like(ex_actions, env.action_space.n - 1)
+        ex_actions = np.full_like(ex_actions, env.action_space.n - 1).reshape(1, 1)
     agent = QRLAgent.create(
         seed=seed,
         ex_observations=train_raw['observations'][:1],
@@ -161,13 +174,15 @@ def _qrl_c_seed_worker(kwargs: dict):
     )
     train_dataset = GCDataset(Dataset(train_raw), agent_cfg)
     eval_temperature = EVAL_TEMPERATURE if is_visual else 0.0
+    # Only expand discrete actions to 2D for ddpgbc (dynamics concat); AWR needs 1D.
+    use_expand = is_discrete and agent_cfg.actor_loss == 'ddpgbc'
 
     print(f"  [Seed {seed}] starting training loop (print every 10k steps) ...", flush=True)
 
     seed_evals = []
     _t_loop_start = time.time()
     for step in range(1, train_steps + 1):
-        batch        = train_dataset.sample(agent_cfg.batch_size)
+        batch        = expand_discrete_actions(train_dataset.sample(agent_cfg.batch_size)) if use_expand else train_dataset.sample(agent_cfg.batch_size)
         agent, _info = agent.update(batch)
 
         if step == 100:
@@ -247,6 +262,8 @@ def main():
 
     agent_cfg        = build_agent_config(cfg, is_discrete=is_discrete, is_visual=is_visual)
     eval_temperature = EVAL_TEMPERATURE if is_visual else 0.0
+    # Expand discrete actions to 2D only for ddpgbc (dynamics concat); AWR needs 1D.
+    use_expand = is_discrete and agent_cfg.actor_loss == 'ddpgbc'
 
     print(f"\n{'='*60}")
     print(f"QRL (OGBench canonical) on OGBench: {env_name}")
@@ -313,7 +330,7 @@ def main():
         # ── Sequential path ────────────────────────────────────────────────────
         ex_actions = train_raw['actions'][:1]
         if is_discrete:
-            ex_actions = np.full_like(ex_actions, env.action_space.n - 1)
+            ex_actions = np.full_like(ex_actions, env.action_space.n - 1).reshape(1, 1)
 
         for seed_idx, seed in enumerate(seeds):
             print(f"\n{'─'*60}")
@@ -335,7 +352,8 @@ def main():
             if args.slurm_tqdm:
                 _t_loop_start = time.time()
                 for step in range(1, train_steps + 1):
-                    batch        = train_dataset.sample(agent_cfg.batch_size)
+                    _b = train_dataset.sample(agent_cfg.batch_size)
+                    batch        = expand_discrete_actions(_b) if use_expand else _b
                     agent, _info = agent.update(batch)
 
                     if step == 100:
@@ -364,7 +382,8 @@ def main():
                 pbar = tqdm(range(1, train_steps + 1),
                             desc=f"Seed {seed}", unit="step")
                 for step in pbar:
-                    batch        = train_dataset.sample(agent_cfg.batch_size)
+                    _b = train_dataset.sample(agent_cfg.batch_size)
+                    batch        = expand_discrete_actions(_b) if use_expand else _b
                     agent, _info = agent.update(batch)
 
                     if step % eval_intv == 0:

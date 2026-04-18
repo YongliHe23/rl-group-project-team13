@@ -82,8 +82,9 @@ def build_agent_config(
     agent_cfg.actor_geom_sample   = cfg.actor_geom_sample
 
     # ── environment modality ───────────────────────────────────────────────────
-    agent_cfg.discrete = is_discrete
-    agent_cfg.encoder  = 'impala_small' if is_visual else None
+    agent_cfg.discrete    = is_discrete
+    agent_cfg.encoder     = 'impala_small' if is_visual else None
+    agent_cfg.actor_loss  = cfg.actor_loss
 
     agent_cfg.lock()
     return agent_cfg

@@ -39,6 +39,13 @@ _BASE = dict(
     actor_p_trajgoal    = 1.0,      # navigate: uniform traj
     actor_p_randomgoal  = 0.0,
     actor_geom_sample   = False,
+    # Agent
+    actor_loss          = 'ddpgbc',
+    discrete            = False,
+    encoder             = None,
+    eval_temperature    = 0,
+    p_aug               = 0.0,
+    frame_stack         = None,
 )
 
 # ── Per-environment overrides ──────────────────────────────────────────────────
@@ -111,9 +118,15 @@ _ENV_CONFIGS = {
     "puzzle-4x5-play-v0":     dict(alpha=0.3, train_steps=1000000),
     "puzzle-4x6-play-v0":     dict(alpha=0.3, train_steps=1000000),
     # ── Powderworld — supported via --visual-enabled flag ─────────────────────
-    "powderworld-easy-play-v0":   dict(alpha=3.0, train_steps=500_000),
-    "powderworld-medium-play-v0": dict(alpha=3.0, train_steps=500_000),
-    "powderworld-hard-play-v0":   dict(alpha=3.0, train_steps=500_000),
+    "powderworld-easy-play-v0":   dict(actor_loss='awr', alpha=3.0, batch_size=256,
+                                       discrete=True, encoder='impala_small',
+                                       eval_temperature=0.3, train_steps=500_000),
+    "powderworld-medium-play-v0": dict(actor_loss='awr', alpha=3.0, batch_size=256,
+                                       discrete=True, encoder='impala_small',
+                                       eval_temperature=0.3, train_steps=500_000),
+    "powderworld-hard-play-v0":   dict(actor_loss='awr', alpha=3.0, batch_size=256,
+                                       discrete=True, encoder='impala_small',
+                                       eval_temperature=0.3, train_steps=500_000),
     # ── Visual AntMaze — NOT SUPPORTED (requires impala_small visual encoder) ─
     # Hyperparameters mirror state-based antmaze counterparts.
     "visual-antmaze-medium-navigate-v0":   dict(_unsupported=True, alpha=0.003),
