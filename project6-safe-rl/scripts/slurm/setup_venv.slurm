@@ -14,20 +14,25 @@
 set -euo pipefail
 
 WORKDIR=/home/yonglihe/ece567/project/rl-group-project-team13/project6-safe-rl
-VENV_DIR=$WORKDIR/venv
+SCRATCH_VENV=/scratch/jfnielse_root/jfnielse0/yonglihe/ece_567/project6/venv
+VENV_LINK=$WORKDIR/venv
 REQUIREMENTS=$WORKDIR/requirements.txt
 
 module purge
 module load python/3.10
 module load cuda/12.6.3
 
-if [ -d "$VENV_DIR" ]; then
-  echo "Removing existing venv at $VENV_DIR"
-  rm -rf "$VENV_DIR"
+if [ -d "$SCRATCH_VENV" ]; then
+  echo "Removing existing venv at $SCRATCH_VENV"
+  rm -rf "$SCRATCH_VENV"
 fi
 
-python -m venv "$VENV_DIR"
-source "$VENV_DIR/bin/activate"
+mkdir -p "$(dirname "$SCRATCH_VENV")"
+python -m venv "$SCRATCH_VENV"
+
+# Symlink $WORKDIR/venv -> scratch venv
+ln -sfn "$SCRATCH_VENV" "$VENV_LINK"
+source "$SCRATCH_VENV/bin/activate"
 
 python -m pip install --upgrade pip wheel setuptools
 
@@ -45,4 +50,4 @@ import safety_gymnasium
 print("safety_gymnasium: OK")
 PY
 
-echo "VENV READY at $VENV_DIR"
+echo "VENV READY at $SCRATCH_VENV (linked from $VENV_LINK)"
