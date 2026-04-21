@@ -7,7 +7,7 @@ seed: 0
 env_id: SafetyPointGoal2-v0
 
 train_cfgs:
-  total_steps: 3000000      # 100 epochs × 30k steps — long enough to demonstrate all three
+  total_steps: 500000      # 100 epochs × 30k steps — long enough to demonstrate all three
                             # performance criteria against the 9.5M-step PPO-Lag baseline.
                             # Key milestones:
                             #   epoch 20 (600k steps):  d_curr ≈ 25.8  (curriculum converged)
@@ -71,7 +71,7 @@ pid_cfgs:
 
 # ── Innovation 2: Adaptive Cost Advantage Normalization + Gradient Ortho ──────
 ortho_cfgs:
-  enabled: true         # gradient orthogonalization active when agent is genuinely safe
+  enabled: false         # gradient orthogonalization active when agent is genuinely safe
                         # NOTE: _is_safe is tested against d_target (the TRUE 25.0 limit),
                         # NOT d_curr. This ensures projection only fires once the agent has
                         # actually achieved the final safety target, allowing unrestricted
@@ -81,6 +81,7 @@ ortho_cfgs:
 
 # ── Innovation 3: Reachability-Based Predictive Shielding ─────────────────────
 shield_cfgs:
+  enabled: false         # set false to disable shielding entirely (falls back to raw policy)
   H: 3                  # imagination horizon (lookahead steps, unchanged)
 
   threshold: 20.0       # cumulative cost threshold (was 5.0 → increased 4× in first tuning)
@@ -104,6 +105,7 @@ shield_cfgs:
 
 # ── Innovation 4a: Safe Curriculum Generation ──────────────────────────────────
 curriculum_cfgs:
+  enabled: false         # set false to use fixed d_target from the start (no annealing)
   d_target: 25.0        # final cost limit (matches PPO-Lag for fair comparison)
 
   d_init: 150.0         # initial relaxed cost limit — permits free exploration
@@ -127,7 +129,7 @@ curriculum_cfgs:
 
 # ── Innovation 4b: Differential Cost Shaping ──────────────────────────────────
 shaping_cfgs:
-  enabled: true
+  enabled: false
   prox_threshold: 0.5   # lidar activation level above which proximity penalty fires
 
   hazard_shaping_coef: 0.2   # (was 0.5 → reduced 2.5× in first tuning, kept)

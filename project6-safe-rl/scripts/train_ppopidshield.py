@@ -332,12 +332,14 @@ class PPOPIDShieldTrainer:
 
         # Innovation 3: predictive shield
         dyn_hidden          = list(sh.get('dynamics_hidden', [128, 128]))
+        self.shield_enabled = bool(sh.get('enabled',      True))
         self.shield_H       = int(sh.get('H',             3))
         self.shield_thresh  = float(sh.get('threshold',   5.0))
         self.shield_maxre   = int(sh.get('max_resample',  5))
         self.shield_warmup  = int(sh.get('shield_warmup', 3))
 
         # Innovation 4a: curriculum
+        self.curriculum_enabled = bool(cur.get('enabled', True))
         self.d_target   = float(cur.get('d_target', float(lc.get('cost_limit', 25.0))))
         self.d_init     = float(cur.get('d_init',   150.0))
         self.kappa_cur  = float(cur.get('kappa',    0.005))
@@ -371,6 +373,8 @@ class PPOPIDShieldTrainer:
         return torch.as_tensor(x, dtype=torch.float32, device=self.dev)
 
     def _curr_limit(self) -> float:
+        if not self.curriculum_enabled:
+            return self.d_target
         return curriculum_limit(self._epoch, self.d_target, self.d_init, self.kappa_cur)
 
     # ── Innovation 3: predictive shield ──────────────────────────────────────
@@ -417,7 +421,7 @@ class PPOPIDShieldTrainer:
             act_np = np.clip(act_t.cpu().numpy()[0], self.act_low, self.act_high)
 
             # Innovation 3: shield — resample if action looks unsafe
-            if not self._shield_ok(obs_np, act_np):
+            if self.shield_enabled and not self._shield_ok(obs_np, act_np):
                 for _ in range(self.shield_maxre):
                     with torch.no_grad():
                         act_t, logp_t = self.actor.sample(obs_t)
@@ -478,11 +482,16 @@ class PPOPIDShieldTrainer:
         # ── Dynamics model (Innovation 3) ─────────────────────────────────────
         # Trained via supervised MSE on collected (s, a) → s' transitions.
         # Half as many iterations as the policy update to limit overhead.
-        dyn_iters = max(1, self.update_iters // 2)
-        for _ in range(dyn_iters):
-            pred_next = self.dynamics(obs, acts)
-            loss_dyn  = F.mse_loss(pred_next, next_obs.detach())
-            self.dyn_opt.zero_grad(); loss_dyn.backward(); self.dyn_opt.step()
+        loss_dyn = 0.0
+        if self.shield_enabled:
+            dyn_iters = max(1, self.update_iters // 2)
+            _loss_dyn = None
+            for _ in range(dyn_iters):
+                pred_next = self.dynamics(obs, acts)
+                _loss_dyn = F.mse_loss(pred_next, next_obs.detach())
+                self.dyn_opt.zero_grad(); _loss_dyn.backward(); self.dyn_opt.step()
+            if _loss_dyn is not None:
+                loss_dyn = _loss_dyn.item()
 
         # ── Reward critic ─────────────────────────────────────────────────────
         for _ in range(self.update_iters):
@@ -569,7 +578,7 @@ class PPOPIDShieldTrainer:
         new_lam = self.pid.update(avg_cost, d_curr)
 
         return dict(kl=kl, lam=new_lam, d_curr=d_curr,
-                    loss_rc=loss_rc.item(), loss_dyn=loss_dyn.item())
+                    loss_rc=loss_rc.item(), loss_dyn=loss_dyn)
 
     # ── Main training loop ────────────────────────────────────────────────────
 
@@ -585,7 +594,8 @@ class PPOPIDShieldTrainer:
         print(f"  Shield  H={self.shield_H}  thresh={self.shield_thresh}"
               f"  warmup={self.shield_warmup} epochs")
         print(f"  Curriculum  d_init={self.d_init}→{self.d_target}  κ={self.kappa_cur}")
-        print(f"  Ortho={self.ortho_enabled}  Shaping={self.shaping_on}")
+        print(f"  Ortho={self.ortho_enabled}  Shield={self.shield_enabled}"
+              f"  Curriculum={self.curriculum_enabled}  Shaping={self.shaping_on}")
         print(f"{'='*72}")
         hdr = (f"{'Epoch':>6}  {'AvgRet':>9}  {'AvgCost':>9}  "
                f"{'Lambda':>8}  {'d_curr':>7}  {'KL':>8}  {'NEps':>5}")
