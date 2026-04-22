@@ -3,14 +3,26 @@ from pathlib import Path
 import pandas as pd
 import matplotlib.pyplot as plt
 
+
 def find_latest_progress(algo: str):
     paths = sorted(Path("runs").glob(f"{algo}-*/*/progress.csv"))
     if not paths:
         raise FileNotFoundError(f"No progress.csv found for {algo} under runs/")
     return paths[-1]
-  
-# plot similar results as Figure 7 in "Benchmarking Safe Exploration in Deep Reinforcement Learning"
 
+
+def find_lagrange_column(df: pd.DataFrame):
+    candidates = [
+        "Metrics/LagrangeMultiplier",
+        "Metrics/LagrangeMultiplier/Mean",
+    ]
+    for col in candidates:
+        if col in df.columns:
+            return col
+    return None
+
+
+# plot similar results as Figure 7 in "Benchmarking Safe Exploration in Deep RL"
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--algo", type=str, default="PPOLag")
@@ -21,18 +33,24 @@ def main():
     print(f"Using CSV: {csv_path}")
 
     df = pd.read_csv(csv_path)
+
     df["DeltaSteps"] = df["TotalEnvSteps"].diff().fillna(df["TotalEnvSteps"])
     df["CostRate_epoch_est"] = df["Metrics/EpCost"] / df["Metrics/EpLen"]
     df["CumulativeCost_est"] = (df["DeltaSteps"] * df["CostRate_epoch_est"]).cumsum()
     df["CostRate_est"] = df["CumulativeCost_est"] / df["TotalEnvSteps"]
 
+    lag_col = find_lagrange_column(df)
+
     # ===== Extract Figure 7 data =====
-    fig7_df = df[
-        ["TotalEnvSteps", "Metrics/EpRet", "Metrics/EpCost", "CostRate_est"]
-    ].rename(
+    keep_cols = ["TotalEnvSteps", "Metrics/EpRet", "Metrics/EpCost", "CostRate_est"]
+    if lag_col is not None:
+        keep_cols.append(lag_col)
+
+    fig7_df = df[keep_cols].rename(
         columns={
             "Metrics/EpRet": "AverageEpRet",
             "Metrics/EpCost": "AverageEpCost",
+            lag_col: "LagrangeMultiplier" if lag_col is not None else "",
         }
     )
 
@@ -57,33 +75,47 @@ def main():
     print(f"Average FPS over run: {fps_avg:.2f}")
     print(f"Last logged FPS: {fps_last:.2f}")
 
-    # ===== Plot Figure 7-style curves =====
-    df["DeltaSteps"] = df["TotalEnvSteps"].diff().fillna(df["TotalEnvSteps"])
-    df["CostRate_epoch_est"] = df["Metrics/EpCost"] / df["Metrics/EpLen"]
-    df["CumulativeCost_est"] = (df["DeltaSteps"] * df["CostRate_epoch_est"]).cumsum()
-    df["CostRate_est"] = df["CumulativeCost_est"] / df["TotalEnvSteps"]
+    if lag_col is not None:
+        print(f"Using Lagrange multiplier column: {lag_col}")
+        print(f"Final Lagrange multiplier: {df[lag_col].iloc[-1]:.6f}")
+    else:
+        print("No Lagrange multiplier column found in CSV.")
 
-    fig, axes = plt.subplots(1, 3, figsize=(12, 3.4))
+    # ===== Plot curves =====
+    ncols = 4 if lag_col is not None else 3
+    fig, axes = plt.subplots(1, ncols, figsize=(4 * ncols, 3.4))
 
-    axes[0].plot(df["TotalEnvSteps"], df["Metrics/EpRet"], linewidth=2)
-    axes[0].set_title("AverageEpRet")
-    axes[0].set_xlabel("TotalEnvSteps")
-    axes[0].set_ylabel("AverageEpRet")
-    axes[0].grid(True, alpha=0.3)
+    if ncols == 3:
+        ax0, ax1, ax2 = axes
+    else:
+        ax0, ax1, ax2, ax3 = axes
 
-    axes[1].plot(df["TotalEnvSteps"], df["Metrics/EpCost"], linewidth=2)
-    axes[1].axhline(25, linestyle="--", linewidth=1.5)
-    axes[1].set_title("AverageEpCost")
-    axes[1].set_xlabel("TotalEnvSteps")
-    axes[1].set_ylabel("AverageEpCost")
-    axes[1].grid(True, alpha=0.3)
+    ax0.plot(df["TotalEnvSteps"], df["Metrics/EpRet"], linewidth=2)
+    ax0.set_title("AverageEpRet")
+    ax0.set_xlabel("TotalEnvSteps")
+    ax0.set_ylabel("AverageEpRet")
+    ax0.grid(True, alpha=0.3)
 
-    axes[2].plot(df["TotalEnvSteps"], df["CostRate_est"], linewidth=2)
-    axes[2].axhline(0.025, linestyle="--", linewidth=1.5)
-    axes[2].set_title("CostRate")
-    axes[2].set_xlabel("TotalEnvSteps")
-    axes[2].set_ylabel("CostRate")
-    axes[2].grid(True, alpha=0.3)
+    ax1.plot(df["TotalEnvSteps"], df["Metrics/EpCost"], linewidth=2)
+    ax1.axhline(25, linestyle="--", linewidth=1.5)
+    ax1.set_title("AverageEpCost")
+    ax1.set_xlabel("TotalEnvSteps")
+    ax1.set_ylabel("AverageEpCost")
+    ax1.grid(True, alpha=0.3)
+
+    ax2.plot(df["TotalEnvSteps"], df["CostRate_est"], linewidth=2)
+    ax2.axhline(0.025, linestyle="--", linewidth=1.5)
+    ax2.set_title("CostRate")
+    ax2.set_xlabel("TotalEnvSteps")
+    ax2.set_ylabel("CostRate")
+    ax2.grid(True, alpha=0.3)
+
+    if lag_col is not None:
+        ax3.plot(df["TotalEnvSteps"], df[lag_col], linewidth=2)
+        ax3.set_title("LagrangeMultiplier")
+        ax3.set_xlabel("TotalEnvSteps")
+        ax3.set_ylabel("Lambda")
+        ax3.grid(True, alpha=0.3)
 
     fig.tight_layout()
     out_path = f"{args.algo}_plot.png"
@@ -91,7 +123,8 @@ def main():
     plt.show()
     print(f"Saved plot to {out_path}")
 
-# using the following code as an example,
+
+# Example:
 # python scripts\plot_ppolag_trpolag.py --algo PPOLag --csv "runs\PPOLag-{SafetyPointGoal1-v0}\seed-000-2026-03-29-13-02-42\progress.csv"
 
 if __name__ == "__main__":

@@ -5,6 +5,8 @@ import os
 import sys
 import math
 
+from yaml import parser
+
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -47,6 +49,9 @@ def main():
     parser.add_argument("--lambda_eta", type=float, default=None)
     parser.add_argument("--lambda_ema_beta", type=float, default=None)
     parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--lambda_eta_min", type=float, default=None)
+    parser.add_argument("--lambda_eta_max", type=float, default=None)
+    parser.add_argument("--lambda_base_weight_min", type=float, default=None)
 
     args = parser.parse_args()
 
@@ -87,7 +92,10 @@ def main():
         "lambda_kappa",
         "lambda_exp_alpha",
         "lambda_eta",
+        "lambda_eta_min",
+        "lambda_eta_max",
         "lambda_ema_beta",
+        "lambda_base_weight_min",
     ]
 
     for field in override_fields:
@@ -130,3 +138,10 @@ if __name__ == "__main__":
   
 # using the following as an example:
 # python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config.yaml --env_id SafetyPointGoal2-v0 --seed 0
+# python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config.yaml --env_id SafetyPointGoal2-v0 --seed 0 --lambda_schedule hybrid_sigmoid_adaptive --lambda_p0 0.5 --lambda_kappa 5 --lambda_eta 0.05 --lambda_ema_beta 0.9#
+# pure adaptive EMA schedule:
+# python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config.yaml --env_id SafetyPointGoal2-v0 --seed 0 --lambda_schedule hybrid_sigmoid_adaptive --lambda_p0 1.0 --lambda_kappa 20 --lambda_eta 0.05 --lambda_ema_beta 0.9
+# python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config.yaml --env_id SafetyPointGoal2-v0 --seed 0 --lambda_schedule hybrid_sigmoid_adaptive --lambda_max 6.0 --lambda_p0 0.7 --lambda_kappa 5.0 --lambda_eta 0.05 --lambda_ema_beta 0.9
+
+# time-varying adaptive 
+# python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config.yaml --env_id SafetyPointGoal2-v0 --seed 0 --lambda_schedule hybrid_timevarying_adaptive --lambda_max 6.0 --lambda_p0 0.7 --lambda_kappa 5.0 --lambda_eta_max 0.1 --lambda_eta_min 0.0 --lambda_ema_beta 0.5 --lambda_base_weight_min 0.0

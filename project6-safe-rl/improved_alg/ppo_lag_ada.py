@@ -61,7 +61,8 @@ class PPOLagAdapt(PPOLag):
 
         lam_min = float(getattr(cfg, "lambda_min", 0.4))
         lam_max = float(getattr(cfg, "lambda_max", 10.0))
-        cost_limit = float(getattr(cfg, "cost_limit", 25.0))
+        # cost_limit = float(getattr(cfg, "cost_limit", 25.0))
+        cost_limit = float(getattr(self._cfgs.lagrange_cfgs, "cost_limit", 25.0))
 
         # 1. default OmniSafe behavior
         if sched == "nonadaptive":
@@ -113,6 +114,38 @@ class PPOLagAdapt(PPOLag):
             self._ema_violation = beta * self._ema_violation + (1.0 - beta) * violation
             lam = base + eta * self._ema_violation
             return min(max(lam, 0.0), lam_max)
+        
+
+        # 8. NEW: time-varying hybrid
+        
+        if sched == "hybrid_timevarying_adaptive":
+            # lam = w_{base} lam_{base} + eta_t * ema_violation
+            # eta_t increases from eta_min to eta_max over time
+            # ema_violation = beta * ema_violation + (1-beta) * violation
+            # beta: momory term for violation, higher beta means more stable but less responsive lambda
+            
+            p0 = float(getattr(cfg, "lambda_p0", 0.35))
+            kappa = float(getattr(cfg, "lambda_kappa", 10.0))
+            beta = float(getattr(cfg, "lambda_ema_beta", 0.9))
+
+            # eta increases over time
+            eta_min = float(getattr(cfg, "lambda_eta_min", 0.0))
+            eta_max = float(getattr(cfg, "lambda_eta_max", 0.05))
+            eta_t = eta_min + (eta_max - eta_min) * progress
+
+            # base weight decreases over time
+            base_weight_min = float(getattr(cfg, "lambda_base_weight_min", 0.0))
+            base_weight = base_weight_min + (1.0 - base_weight_min) * (1.0 - progress)
+
+            sigma = 1.0 / (1.0 + math.exp(-kappa * (progress - p0)))
+            base = lam_min + (lam_max - lam_min) * sigma
+
+            violation = float(Jc - cost_limit)
+            self._ema_violation = beta * self._ema_violation + (1.0 - beta) * violation
+
+            lam = base_weight * base + eta_t * self._ema_violation
+            return min(max(lam, 0.0), lam_max)
+    
 
         raise ValueError(f"Unknown lambda_schedule: {sched}")
 
