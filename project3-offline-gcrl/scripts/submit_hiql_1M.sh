@@ -16,7 +16,7 @@ for job in "${jobs[@]}"; do
   dataset="${env}-${dsize}-${task}-v0"
   echo "Submitting: $dataset (1M steps)"
   sbatch --job-name="hiql-${env}-${dsize}-${task}-1M" \
-         --time=10:00:00 \
+         --time=15:00:00 \
          --export=ALL,ENV="$env",TASK="$task",DSIZE="$dsize",TRAIN_STEPS=1000000 \
          "$SLURM_SCRIPT"
 done

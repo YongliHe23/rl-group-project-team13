@@ -8,12 +8,15 @@ build/
 # Environments
 .venv/
 venv/
+project6-safe-rl/venv
 *.conda/
 
 # Experiment outputs
 /results/
 /project6-safe-rl/results/
 wandb/
+project6-safe-rl/logs/
+project6-safe-rl/runs/
 
 # Jupyter
 .ipynb_checkpoints/

@@ -91,6 +91,7 @@ def build_agent_config(
     # ── environment modality ───────────────────────────────────────────────────
     agent_cfg.discrete           = is_discrete
     agent_cfg.encoder            = 'impala_small' if is_visual else None
+    agent_cfg.low_actor_rep_grad = cfg.low_actor_rep_grad
 
     agent_cfg.lock()
     return agent_cfg

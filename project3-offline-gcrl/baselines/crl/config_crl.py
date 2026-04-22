@@ -33,6 +33,7 @@ _BASE = dict(
     train_steps     = 500_000,
     eval_episodes   = 50,
     discount        = 0.99,
+    actor_loss      = 'ddpgbc',     # Actor loss type ('awr' or 'ddpgbc')
     alpha           = 0.1,          # DDPG+BC BC coefficient
     # Value (critic) goal sampling: geometric traj — fixed for all CRL envs
     value_p_trajgoal    = 1.0,
@@ -114,9 +115,9 @@ _ENV_CONFIGS = {
     "puzzle-4x5-play-v0":     dict(alpha=3.0, train_steps=1000000),
     "puzzle-4x6-play-v0":     dict(alpha=3.0, train_steps=1000000),
     # ── Powderworld — supported via --visual-enabled flag ─────────────────────
-    "powderworld-easy-play-v0":   dict(alpha=3.0, train_steps=500_000),
-    "powderworld-medium-play-v0": dict(alpha=3.0, train_steps=500_000),
-    "powderworld-hard-play-v0":   dict(alpha=3.0, train_steps=500_000),
+    "powderworld-easy-play-v0":   dict(actor_loss='awr', alpha=3.0, train_steps=500_000),
+    "powderworld-medium-play-v0": dict(actor_loss='awr', alpha=3.0, train_steps=500_000),
+    "powderworld-hard-play-v0":   dict(actor_loss='awr', alpha=3.0, train_steps=500_000),
     # ── Visual AntMaze — NOT SUPPORTED (requires impala_small visual encoder) ─
     # Hyperparameters mirror state-based antmaze counterparts.
     "visual-antmaze-medium-navigate-v0":   dict(_unsupported=True, alpha=0.1),

@@ -118,7 +118,11 @@ def main():
         ax3.grid(True, alpha=0.3)
 
     fig.tight_layout()
-    out_path = f"{args.algo}_plot.png"
+    env_name = csv_path.parts[-3].split(f"{args.algo}-", 1)[-1]
+    seed_name = csv_path.parts[-2]
+    out_dir = Path("/home/yonglihe/ece567/project/rl-group-project-team13/project6-safe-rl/plots") / args.algo
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{{{env_name}}}-{{{seed_name}}}.png"
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.show()
     print(f"Saved plot to {out_path}")
