@@ -7,7 +7,7 @@ seed: 0
 env_id: SafetyPointGoal2-v0
 
 train_cfgs:
-  total_steps: 500000      # 100 epochs × 30k steps — long enough to demonstrate all three
+  total_steps: 5000000      # 100 epochs × 30k steps — long enough to demonstrate all three
                             # performance criteria against the 9.5M-step PPO-Lag baseline.
                             # Key milestones:
                             #   epoch 20 (600k steps):  d_curr ≈ 25.8  (curriculum converged)

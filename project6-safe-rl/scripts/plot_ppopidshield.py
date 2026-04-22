@@ -122,7 +122,7 @@ def main():
 
     axes[0].plot(df['TotalEnvSteps'], df['Metrics/EpRet'],
                  color=COLOR, linewidth=2)
-    axes[0].set_title(f'AverageEpRet  ({title_base})')
+    axes[0].set_title(f'AverageEpRet  ({title_base})', fontsize=9)
     axes[0].set_xlabel('TotalEnvSteps')
     axes[0].set_ylabel('AverageEpRet')
     axes[0].grid(True, alpha=0.3)
@@ -131,7 +131,7 @@ def main():
                  color=COLOR, linewidth=2)
     axes[1].axhline(COST_LIMIT, linestyle='--', color='red', linewidth=1.5,
                     label=f'cost_limit = {COST_LIMIT}')
-    axes[1].set_title(f'AverageEpCost  ({title_base})')
+    axes[1].set_title(f'AverageEpCost  ({title_base})', fontsize=9)
     axes[1].set_xlabel('TotalEnvSteps')
     axes[1].set_ylabel('AverageEpCost')
     axes[1].legend(fontsize=8)
@@ -141,7 +141,7 @@ def main():
                  color=COLOR, linewidth=2)
     axes[2].axhline(COST_RATE_LIM, linestyle='--', color='red', linewidth=1.5,
                     label=f'rate limit ≈ {COST_RATE_LIM}')
-    axes[2].set_title(f'CostRate  ({title_base})')
+    axes[2].set_title(f'CostRate  ({title_base})', fontsize=9)
     axes[2].set_xlabel('TotalEnvSteps')
     axes[2].set_ylabel('CostRate')
     axes[2].legend(fontsize=8)
