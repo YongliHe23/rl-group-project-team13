@@ -318,13 +318,18 @@ class PPOPIDShieldTrainer:
         self.n_epochs     = tc['total_steps'] // self.steps_per_epoch
 
         # Innovation 1: PID-Lagrangian + Nesterov
+        self.pid_enabled = bool(pid.get('enabled', True))
+        _init_lam = float(lc.get('lagrangian_multiplier_init', 1.0))
         self.pid = PIDLagrangianController(
-            init_lam      = float(lc.get('lagrangian_multiplier_init', 1.0)),
+            init_lam      = _init_lam,
             Kp            = pid.get('Kp',            0.1),
             Ki            = pid.get('Ki',            0.01),
             Kd            = pid.get('Kd',            0.05),
             beta_nesterov = pid.get('beta_nesterov', 0.6),
         )
+        # Fallback state for standard PPO-Lag dual ascent (used when pid_enabled=False)
+        self._lam_std  = _init_lam
+        self.lambda_lr = float(lc.get('lambda_lr', 0.05))
 
         # Innovation 2b: gradient orthogonalization
         self.ortho_enabled = bool(ort.get('enabled', True))
@@ -504,7 +509,7 @@ class PPOPIDShieldTrainer:
             self.ccrit_opt.zero_grad(); loss_cc.backward(); self.ccrit_opt.step()
 
         # ── Actor update (PPO-clip + Innovation 2b: gradient ortho) ──────────
-        lam  = self.pid.lam
+        lam  = self.pid.lam if self.pid_enabled else self._lam_std
         kl   = 0.0
         act_lo = self._t(self.act_low)
         act_hi = self._t(self.act_high)
@@ -575,7 +580,12 @@ class PPOPIDShieldTrainer:
 
         # ── Innovation 1: PID-Lagrangian + Nesterov update ───────────────────
         # Uses the raw episodic cost (not shaped) and the curriculum limit.
-        new_lam = self.pid.update(avg_cost, d_curr)
+        if self.pid_enabled:
+            new_lam = self.pid.update(avg_cost, d_curr)
+        else:
+            # Fallback: standard PPO-Lag integral dual ascent
+            self._lam_std = max(0.0, self._lam_std + self.lambda_lr * (avg_cost - d_curr))
+            new_lam = self._lam_std
 
         return dict(kl=kl, lam=new_lam, d_curr=d_curr,
                     loss_rc=loss_rc.item(), loss_dyn=loss_dyn)
@@ -589,13 +599,13 @@ class PPOPIDShieldTrainer:
 
         print(f"\n{'='*72}")
         print(f"  PPO-PIDShield  |  {self.env_id}  |  seed={self.seed}")
-        print(f"  PID  Kp={self.pid.Kp}  Ki={self.pid.Ki}  Kd={self.pid.Kd}"
-              f"  β_Nesterov={self.pid.beta}")
-        print(f"  Shield  H={self.shield_H}  thresh={self.shield_thresh}"
-              f"  warmup={self.shield_warmup} epochs")
-        print(f"  Curriculum  d_init={self.d_init}→{self.d_target}  κ={self.kappa_cur}")
-        print(f"  Ortho={self.ortho_enabled}  Shield={self.shield_enabled}"
-              f"  Curriculum={self.curriculum_enabled}  Shaping={self.shaping_on}")
+        print(f"  PID={self.pid_enabled}  Kp={self.pid.Kp}  Ki={self.pid.Ki}"
+              f"  Kd={self.pid.Kd}  β_Nesterov={self.pid.beta}")
+        print(f"  Shield={self.shield_enabled}  H={self.shield_H}"
+              f"  thresh={self.shield_thresh}  warmup={self.shield_warmup} epochs")
+        print(f"  Curriculum={self.curriculum_enabled}"
+              f"  d_init={self.d_init}→{self.d_target}  κ={self.kappa_cur}")
+        print(f"  Ortho={self.ortho_enabled}  Shaping={self.shaping_on}")
         print(f"{'='*72}")
         hdr = (f"{'Epoch':>6}  {'AvgRet':>9}  {'AvgCost':>9}  "
                f"{'Lambda':>8}  {'d_curr':>7}  {'KL':>8}  {'NEps':>5}")

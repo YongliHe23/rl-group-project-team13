@@ -7,12 +7,9 @@ seed: 0
 env_id: SafetyPointGoal2-v0
 
 train_cfgs:
-  total_steps: 5000000      # 100 epochs × 30k steps — long enough to demonstrate all three
-                            # performance criteria against the 9.5M-step PPO-Lag baseline.
-                            # Key milestones:
-                            #   epoch 20 (600k steps):  d_curr ≈ 25.8  (curriculum converged)
-                            #   epoch 33 (1M steps):    d_curr ≈ 25.0  (PID enforcing final limit)
-                            #   epoch 100 (3M steps):   steady-state safe+high-return policy
+  total_steps: 5000000      # 100 epochs × 30k steps.
+                            # PPO-Lag runs 9.5M (316 epochs); 3M gives enough range to
+                            # show all three improvements while remaining feasible.
   vector_env_nums: 1
 
 logger_cfgs:
@@ -46,99 +43,102 @@ model_cfgs:
 
 # ── Innovation 1: PID-Lagrangian + Nesterov Accelerated Dual Ascent ───────────
 pid_cfgs:
-  Kp: 0.15              # proportional gain (was 0.1 → increased 1.5×)
-                        # With curriculum tightening from epoch 3 onward and typical
-                        # episodic costs of 60-100 while d_curr is 50-84, the constraint
-                        # violation e = J_C - d_curr is 10-50 per epoch.
-                        # At Kp=0.10: Δλ_P = 1.0-5.0  → λ rises slowly, cost stays high.
-                        # At Kp=0.15: Δλ_P = 1.5-7.5  → stronger immediate push that
-                        # drives cost below 25 before 1M steps (epoch 33), meeting target 1.
+  enabled: true         # set false to fall back to standard PPO-Lag dual ascent
+                        # (λ += lambda_lr · (J_C − d), using lagrange_cfgs.lambda_lr)
 
-  Ki: 0.002             # integral gain (was 0.01 → reduced 5× in first tuning, kept)
-                        # With ~100 epochs, the integral accumulates over many safe epochs
-                        # once cost falls below d_curr. Ki=0.002 prevents integral wind-up
-                        # from creating large negative offsets during the early curriculum
-                        # phase (epochs 1-3) where cost < d_curr = 150.
+  Kp: 0.002             # ← CRITICAL FIX: was 0.15 → reduced 75×
+                        #
+                        # Root cause of prior failure: PPO-Lag's OmniSafe update is
+                        # effectively sign-based (Δλ ≈ ±0.05/epoch regardless of error
+                        # magnitude), giving an effective Kp ≈ 0.05/56 ≈ 0.00089.
+                        # Our Kp=0.15 was 168× larger → λ exploded to 421 by epoch 33
+                        # (PPO-Lag λ≈2.2 at the same point) — destroying the reward
+                        # gradient entirely for the whole run.
+                        #
+                        # Kp=0.002 simulation against the observed cost trajectory:
+                        #   epoch  8: λ ≈ 2.1  (PPO-Lag: 1.43) — comparable scale
+                        #   epoch 16: λ ≈ 3.5  (PPO-Lag: 1.76) — slightly more aggressive
+                        #   epoch 24: λ ≈ 4.1  (PPO-Lag: 2.00) — 2× larger: cost<25 earlier
+                        # λ≈4 vs PPO-Lag's λ≈2 at epoch 24 means stronger constraint
+                        # enforcement → cost should drop below 25 before epoch 24, beating
+                        # PPO-Lag's 750k-step threshold (metric 1).
 
-  Kd: 0.01              # derivative gain (was 0.05 → reduced 5× in first tuning, kept)
-                        # Cost oscillates naturally between epochs (±50-100 typical range).
-                        # Kd=0.01 provides anticipatory damping without amplifying noise.
+  Ki: 0.0               # ← CRITICAL FIX: was 0.002 → zero (integral disabled)
+                        #
+                        # With Ki=0.002 and typical errors of 50/epoch, ∫e accumulated
+                        # to ~1600 unit-epochs by epoch 33 → Ki·∫e = 3.2 added per step
+                        # ON TOP of the already too-large Kp contribution. Even when
+                        # cost briefly dropped to 26 (epoch 24), the integral kept growing
+                        # (error=1 → ∫e still positive) so λ never stopped rising.
+                        #
+                        # Ki=0 converts the controller to PD-only. The Nesterov term
+                        # (β=0.3) provides mild "lookahead" momentum that replaces the
+                        # integral's history tracking without unbounded accumulation risk.
+                        # If cost is consistently above 25, λ grows via Kp alone at a
+                        # stable rate; once cost crosses 25, Kp·e becomes negative and
+                        # λ self-corrects immediately.
 
-  beta_nesterov: 0.3    # Nesterov momentum β (was 0.6 → halved in first tuning, kept)
-                        # At β=0.3, the lookahead step is μ+0.3·(μ-μ_prev), providing
-                        # 30% acceleration without the 60% overshoot (λ oscillation
-                        # 21→40→45→42→38→26→0) observed at β=0.6.
+  Kd: 0.002             # derivative gain — rescaled proportionally with Kp (was 0.01)
+                        # Kd/Kp ratio maintained at 1:1.
+                        # With cost oscillating ±20-40 between epochs:
+                        #   Δλ_D = 0.002 × 30 = 0.06 — same order as Δλ_P, useful
+                        #   anticipatory signal without destabilising the λ trajectory.
+
+  beta_nesterov: 0.3    # Nesterov momentum β (unchanged — well-calibrated)
+                        # Provides 30% lookahead on the prospective position μ without
+                        # the 60% overshoot observed at β=0.6. Works correctly at the
+                        # corrected Kp scale.
 
 # ── Innovation 2: Adaptive Cost Advantage Normalization + Gradient Ortho ──────
 ortho_cfgs:
-  enabled: false         # gradient orthogonalization active when agent is genuinely safe
-                        # NOTE: _is_safe is tested against d_target (the TRUE 25.0 limit),
-                        # NOT d_curr. This ensures projection only fires once the agent has
-                        # actually achieved the final safety target, allowing unrestricted
-                        # reward maximization while the policy is still learning to be safe.
-                        # This is the key mechanism for achieving higher AverageEpRet than
-                        # PPO-Lag: once safe, reward gradients are never penalized.
+  enabled: true         # gradient orthogonalization active when agent is genuinely safe
+                        # (_is_safe = avg_cost <= d_target = 25.0)
+                        #
+                        # With the corrected PID (λ≈4 at epoch 24 vs PPO-Lag's λ≈2):
+                        # once cost first crosses 25, _is_safe=True fires and the
+                        # projection removes the component of the reward gradient that
+                        # conflicts with safety. PPO-Lag has no such mechanism — its
+                        # policy sacrifices reward to maintain safety throughout. This
+                        # is the primary driver of metric 2 (higher return).
 
 # ── Innovation 3: Reachability-Based Predictive Shielding ─────────────────────
 shield_cfgs:
-  enabled: false         # set false to disable shielding entirely (falls back to raw policy)
-  H: 3                  # imagination horizon (lookahead steps, unchanged)
-
-  threshold: 20.0       # cumulative cost threshold (was 5.0 → increased 4× in first tuning)
-                        # V_C(s) ≈ step_cost/(1-γ). With episodic cost ≈100 and ep_len≈1000,
-                        # step_cost≈0.1, so V_C≈10 in early training. Over H=3+terminal:
-                        # cumcost≈4×10=40. threshold=20 is correctly calibrated to reject
-                        # the top ~50% most dangerous states early (when cost≈100/ep) while
-                        # becoming more permissive as the policy improves (cost→25/ep →
-                        # V_C≈2.5 → cumcost≈10 → threshold=20 rarely triggers).
-                        # This gives automatic curriculum-like shielding without extra params.
-
-  max_resample: 5       # maximum resampling attempts (unchanged)
-
-  shield_warmup: 5      # epochs before shield activates (was 3 → extended in first tuning)
-                        # At 5 epochs (150k transitions), both the dynamics model and V_C
-                        # have enough data to produce reliable H-step cost predictions.
-                        # Activating earlier causes the shield to over-reject due to high
-                        # model uncertainty, preventing coherent policy learning.
-
-  dynamics_hidden: [128, 128]   # dynamics model hidden layer sizes (unchanged)
+  enabled: false        # KEEP DISABLED: dynamics model has insufficient data quality
+                        # in the first ~5 epochs, and the resampling overhead slows
+                        # training significantly relative to the benefit at this stage.
+                        # Re-enable once the PID gains are validated and cost is near 25.
+  H: 3
+  threshold: 20.0
+  max_resample: 5
+  shield_warmup: 5
+  dynamics_hidden: [128, 128]
 
 # ── Innovation 4a: Safe Curriculum Generation ──────────────────────────────────
 curriculum_cfgs:
-  enabled: false         # set false to use fixed d_target from the start (no annealing)
-  d_target: 25.0        # final cost limit (matches PPO-Lag for fair comparison)
-
-  d_init: 150.0         # initial relaxed cost limit — permits free exploration
-                        # in the first 3 epochs before the curriculum tightens appreciably.
-
-  kappa: 0.25           # exponential decay rate (was 0.005 → 0.2 in first tuning → 0.25)
+  enabled: false        # KEEP DISABLED for this comparison run.
                         #
-                        # At kappa=0.25, with total_steps=3M (100 epochs at 30k/epoch):
-                        #   epoch  1 (30k):   d_curr = 25 + 125·exp(-0.25) = 122.5
-                        #   epoch  3 (90k):   d_curr ≈  84.0  ← first PID violation fires
-                        #   epoch  5 (150k):  d_curr ≈  62.5
-                        #   epoch 10 (300k):  d_curr ≈  35.3
-                        #   epoch 15 (450k):  d_curr ≈  27.3
-                        #   epoch 20 (600k):  d_curr ≈  25.8  ← effectively at target
-                        #   epoch 33 (1M):    d_curr ≈  25.0  ← PID enforcing final limit
+                        # Curriculum creates NEGATIVE PID errors for epochs 1-7
+                        # (cost≈80 < d_curr≈120) which would keep λ near 0 during
+                        # early training — beneficial for reward learning but detrimental
+                        # for meeting the cost<25 before 750k steps target (metric 1).
+                        # With Kp=0.002 and curriculum delaying PID activation to epoch 7,
+                        # only 17 epochs remain to build λ≈2-4 — achievable but tight.
                         #
-                        # kappa=0.25 vs kappa=0.20: the tighter decay reaches d_curr≈25
-                        # by epoch 20 (600k steps) vs epoch ~27 (810k steps), giving the
-                        # PID controller 13 more epochs to tighten λ before the 1M-step
-                        # checkpoint — critical for beating PPO-Lag's 1M-step cost target.
+                        # To enable curriculum: set Kp=0.004 (2× to compensate for
+                        # the delayed activation window) and set enabled=true here.
+  d_target: 25.0
+  d_init: 150.0
+  kappa: 0.25
 
 # ── Innovation 4b: Differential Cost Shaping ──────────────────────────────────
 shaping_cfgs:
-  enabled: false
-  prox_threshold: 0.5   # lidar activation level above which proximity penalty fires
-
-  hazard_shaping_coef: 0.2   # (was 0.5 → reduced 2.5× in first tuning, kept)
-                             # Shaped cost is added to raw cost in the GAE buffer,
-                             # becoming the training target for V_C. coef=0.2 provides
-                             # dense gradient signal without inflating V_C targets above
-                             # the actual environment cost (which would bias shield estimates).
-
-  vase_shaping_coef: 0.3     # (was 1.0 → reduced 3.3× in first tuning, kept)
-                             # Weights vases above hazards (as intended: discrete collision
-                             # vs continuous proximity) while keeping both on comparable
-                             # scale to avoid vase avoidance dominating the safety gradient.
+  enabled: false        # KEEP DISABLED for this comparison run.
+                        #
+                        # Shaping inflates V_C training targets (shaped cost > raw cost),
+                        # which biases the cost critic toward over-estimating cost. At the
+                        # corrected λ scale (≈4) this bias is less catastrophic than before,
+                        # but may still cause the ortho projection to fire too conservatively.
+                        # Enable after verifying the PID/ortho interaction works correctly.
+  prox_threshold: 0.5
+  hazard_shaping_coef: 0.2
+  vase_shaping_coef: 0.3
