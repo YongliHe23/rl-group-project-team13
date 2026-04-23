@@ -1,5 +1,5 @@
 """
-plot_comparison.py — Side-by-side overlay: PPO-Lagrangian vs DMB-PPO vs PMAL-USC.
+plot_comparison.py — Side-by-side overlay: PPO-Lag / CPPOPID / DMB-PPO / PMAL-USC / PIDShield.
 
 Reads one progress CSV per algorithm and overlays them on the same three
 axes (AverageEpRet, AverageEpCost, CostRate), matching the Figure 7 style
@@ -7,12 +7,13 @@ from the OpenAI Safe Exploration paper (cdn.openai.com/safexp-short.pdf).
 
 Auto-discovery precedence
 --------------------------
-  PPO-Lag      : runs/PPOLag-{env_id}/seed-*/progress.csv       (OmniSafe output)
-  DMB-PPO      : runs/DMBPPOLag-{env_id}/seed-*/progress.csv    (run_dmbppo_grid output)
-  PMAL-USC     : runs/PMALUSCLag-{env_id}/seed-*/progress.csv   (run_pmalusc_grid output)
-  PIDShield    : runs/PPOPIDShield-{env_id}/seed-*/progress.csv (run_ppopidshield_grid output)
+  PPO-Lag      : runs/PPOLag-{env_id}/seed-*/progress.csv        (OmniSafe output)
+  CPPOPID      : runs/CPPOPID-{env_id}/seed-*/progress.csv       (run_ppopidlag output)
+  DMB-PPO      : runs/DMBPPOLag-{env_id}/seed-*/progress.csv     (run_dmbppo_grid output)
+  PMAL-USC     : runs/PMALUSCLag-{env_id}/seed-*/progress.csv    (run_pmalusc_grid output)
+  PIDShield    : runs/PPOPIDShield-{env_id}/seed-*/progress.csv  (run_ppopidshield_grid output)
 
-The --ppolag_csv / --dmbppo_csv / --pmalusc_csv / --pidshield_csv flags override auto-discovery.
+The --*_csv flags override auto-discovery for any algorithm.
 
 Usage
 -----
@@ -21,13 +22,14 @@ Usage
 
 # Specify CSVs explicitly:
     python scripts/plot_comparison.py \\
-        --ppolag_csv    "runs/PPOLag-{SafetyPointGoal1-v0}/seed-000-.../progress.csv" \\
-        --dmbppo_csv    "runs/DMBPPOLag-{SafetyPointGoal1-v0}/seed-000-.../progress.csv" \\
-        --pmalusc_csv   "runs/PMALUSCLag-{SafetyPointGoal1-v0}/seed-000-.../progress.csv" \\
-        --pidshield_csv "runs/PPOPIDShield-{SafetyPointGoal1-v0}/seed-000-.../progress.csv"
+        --ppolag_csv    "runs/PPOLag-{SafetyPointGoal2-v0}/seed-000-.../progress.csv" \\
+        --cppopid_csv   "runs/CPPOPID-{SafetyPointGoal2-v0}/seed-000-.../progress.csv" \\
+        --dmbppo_csv    "runs/DMBPPOLag-{SafetyPointGoal2-v0}/seed-000-.../progress.csv" \\
+        --pmalusc_csv   "runs/PMALUSCLag-{SafetyPointGoal2-v0}/seed-000-.../progress.csv" \\
+        --pidshield_csv "runs/PPOPIDShield-{SafetyPointGoal2-v0}/seed-000-.../progress.csv"
 
-# Two-way comparison only (e.g., PPO-Lag vs PPO-PIDShield):
-    python scripts/plot_comparison.py --skip_dmbppo --skip_pmalusc
+# Two-way comparison (e.g., PPO-Lag vs CPPOPID):
+    python scripts/plot_comparison.py --skip_dmbppo --skip_pmalusc --skip_pidshield
 
 # Override output file:
     python scripts/plot_comparison.py --out figs/comparison_pointgoal.png
@@ -45,6 +47,7 @@ COST_RATE_LIM = COST_LIMIT / 1000.0
 
 STYLES = {
     'PPO-Lag':      dict(color='#2878b5', linewidth=2, linestyle='-',  label='PPO-Lagrangian'),
+    'CPPOPID':      dict(color='#d62728', linewidth=2, linestyle='-',  label='CPPOPID (OmniSafe PID-Lag)'),
     'DMB-PPO':      dict(color='#e07b39', linewidth=2, linestyle='-',  label='DMB-PPO (ours)'),
     'PMAL-USC':     dict(color='#2ca02c', linewidth=2, linestyle='-',  label='PMAL-USC (ours)'),
     'PIDShield':    dict(color='#9467bd', linewidth=2, linestyle='-',  label='PPO-PIDShield (ours)'),
@@ -137,10 +140,12 @@ def _print_final_row(algo: str, df: pd.DataFrame) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Overlay PPO-Lag, DMB-PPO, and PMAL-USC training curves.'
+        description='Overlay PPO-Lag, CPPOPID, DMB-PPO, PMAL-USC, and PPO-PIDShield training curves.'
     )
     parser.add_argument('--ppolag_csv',    default=None,
                         help='Path to PPO-Lag progress.csv (auto-discovered if omitted)')
+    parser.add_argument('--cppopid_csv',   default=None,
+                        help='Path to CPPOPID progress.csv (auto-discovered if omitted)')
     parser.add_argument('--dmbppo_csv',    default=None,
                         help='Path to DMB-PPO progress.csv (auto-discovered if omitted)')
     parser.add_argument('--pmalusc_csv',   default=None,
@@ -149,6 +154,8 @@ def main():
                         help='Path to PPO-PIDShield progress.csv (auto-discovered if omitted)')
     parser.add_argument('--skip_ppolag',    action='store_true',
                         help='Exclude PPO-Lag from the comparison plot')
+    parser.add_argument('--skip_cppopid',   action='store_true',
+                        help='Exclude CPPOPID from the comparison plot')
     parser.add_argument('--skip_dmbppo',    action='store_true',
                         help='Exclude DMB-PPO from the comparison plot')
     parser.add_argument('--skip_pmalusc',   action='store_true',
@@ -162,15 +169,15 @@ def main():
 
     # Resolve CSV paths
     ppolag_path    = Path(args.ppolag_csv)    if args.ppolag_csv    else _find('PPOLag')
+    cppopid_path   = Path(args.cppopid_csv)   if args.cppopid_csv   else _find('CPPOPID')
     dmbppo_path    = Path(args.dmbppo_csv)    if args.dmbppo_csv    else _find('DMBPPOLag')
     pmalusc_path   = Path(args.pmalusc_csv)   if args.pmalusc_csv   else _find('PMALUSCLag')
     pidshield_path = Path(args.pidshield_csv) if args.pidshield_csv else _find('PPOPIDShield')
 
-    if all(p is None for p in [ppolag_path, dmbppo_path, pmalusc_path, pidshield_path]):
+    if all(p is None for p in [ppolag_path, cppopid_path, dmbppo_path, pmalusc_path, pidshield_path]):
         raise FileNotFoundError(
             "Could not find progress.csv for any algorithm under runs/. "
-            "Run train_ppolag.py, run_dmbppo_grid.py, run_pmalusc_grid.py, and/or "
-            "run_ppopidshield_grid.py first, then re-run this script."
+            "Run the relevant training/grid scripts first, then re-run this script."
         )
 
     dfs   = {}
@@ -178,16 +185,17 @@ def main():
 
     def _try_load(algo, path, skip):
         if skip:
-            print(f'{algo:<10} : SKIPPED (--skip flag)')
+            print(f'{algo:<12} : SKIPPED (--skip flag)')
             return
         if path and path.exists():
-            print(f'{algo:<10} CSV : {path}')
+            print(f'{algo:<12} CSV : {path}')
             dfs[algo]   = load(path)
             paths[algo] = path
         else:
-            print(f'{algo:<10} CSV : NOT FOUND — skipping')
+            print(f'{algo:<12} CSV : NOT FOUND — skipping')
 
     _try_load('PPO-Lag',   ppolag_path,    args.skip_ppolag)
+    _try_load('CPPOPID',   cppopid_path,   args.skip_cppopid)
     _try_load('DMB-PPO',   dmbppo_path,    args.skip_dmbppo)
     _try_load('PMAL-USC',  pmalusc_path,   args.skip_pmalusc)
     _try_load('PIDShield', pidshield_path, args.skip_pidshield)
@@ -215,9 +223,10 @@ def main():
 
 
 # Examples:
-#   python scripts/plot_comparison.py                                         # all four
-#   python scripts/plot_comparison.py --skip_dmbppo --skip_pmalusc           # PPO-Lag vs PIDShield
-#   python scripts/plot_comparison.py --smooth 5 --out figs/four_way.png
+#   python scripts/plot_comparison.py                                          # all five
+#   python scripts/plot_comparison.py --skip_dmbppo --skip_pmalusc            # PPO-Lag vs CPPOPID vs PIDShield
+#   python scripts/plot_comparison.py --skip_cppopid --skip_dmbppo --skip_pmalusc  # PPO-Lag vs PIDShield only
+#   python scripts/plot_comparison.py --smooth 5 --out figs/five_way.png
 
 if __name__ == '__main__':
     main()
