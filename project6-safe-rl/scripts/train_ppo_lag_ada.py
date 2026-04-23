@@ -35,7 +35,7 @@ def load_builtin_ppolag_yaml(env_id: str) -> dict:
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--config", type=str, default="configs/ppo_lag_ada/config.yaml")
+    parser.add_argument("--config", type=str, default="configs/ppo_lag_ada/config_late_soft.yaml")
     parser.add_argument("--env_id", type=str, default=None)
     parser.add_argument("--seed", type=int, default=None)
 
@@ -52,6 +52,9 @@ def main():
     parser.add_argument("--lambda_eta_min", type=float, default=None)
     parser.add_argument("--lambda_eta_max", type=float, default=None)
     parser.add_argument("--lambda_base_weight_min", type=float, default=None)
+    parser.add_argument("--lambda_violation_deadband", type=float, default=None)
+    parser.add_argument("--lambda_rate_up", type=float, default=None)
+    parser.add_argument("--lambda_rate_down", type=float, default=None)
 
     args = parser.parse_args()
 
@@ -71,9 +74,6 @@ def main():
     cfg_dict.setdefault("lagrange_cfgs", {})
     cfg_dict.setdefault("lambda_schedule_cfgs", {})
 
-    schedule_name = cfg_dict.get("lambda_schedule_cfgs", {}).get("lambda_schedule", "default")
-
-    cfg_dict.setdefault("exp_name", f"ppo_lag_adapt_{schedule_name}")
     cfg_dict.setdefault("seed", seed)
     cfg_dict.setdefault("wandb", False)
     cfg_dict.setdefault("device", cfg_dict["train_cfgs"].get("device", "cpu"))
@@ -96,12 +96,18 @@ def main():
         "lambda_eta_max",
         "lambda_ema_beta",
         "lambda_base_weight_min",
+        "lambda_violation_deadband",
+        "lambda_rate_up",
+        "lambda_rate_down",
     ]
 
     for field in override_fields:
         value = getattr(args, field)
         if value is not None:
             cfg_dict["lambda_schedule_cfgs"][field] = value
+
+    schedule_name = cfg_dict.get("lambda_schedule_cfgs", {}).get("lambda_schedule", "default")
+    cfg_dict.setdefault("exp_name", f"ppo_lag_adapt_{schedule_name}")
 
     if args.device is not None:
         cfg_dict["train_cfgs"]["device"] = args.device
@@ -145,3 +151,6 @@ if __name__ == "__main__":
 
 # time-varying adaptive 
 # python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config.yaml --env_id SafetyPointGoal2-v0 --seed 0 --lambda_schedule hybrid_timevarying_adaptive --lambda_max 6.0 --lambda_p0 0.7 --lambda_kappa 5.0 --lambda_eta_max 0.1 --lambda_eta_min 0.0 --lambda_ema_beta 0.5 --lambda_base_weight_min 0.0
+
+# late soft adaptive with rate limits
+# python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config_late_soft.yaml --env_id SafetyPointGoal2-v0 --seed 0

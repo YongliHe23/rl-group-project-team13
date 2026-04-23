@@ -43,8 +43,11 @@ class PPOLagAdapt(PPOLag):
     def _set_lagrange_multiplier(self, value: float) -> None:
         """Manually set lambda with clipping."""
         # clip value to [0, upper_bound] to ensure stability
-        upper = float(self._lagrange.lagrangian_upper_bound)
-        value = max(0.0, min(float(value), upper))
+        upper = self._lagrange.lagrangian_upper_bound
+        if upper is None:
+            value = max(0.0, float(value))
+        else:
+            value = max(0.0, min(float(value), float(upper)))
         self._lagrange.lagrangian_multiplier.data.copy_(
             self._lagrange.lagrangian_multiplier.data.new_tensor(value),
         )
@@ -115,6 +118,57 @@ class PPOLagAdapt(PPOLag):
             lam = base + eta * self._ema_violation
             return min(max(lam, 0.0), lam_max)
         
+        # 7. late soft schedule with rate-limited adaptive correction
+        #
+        # hand picked parameters:
+        # - larger p0, smaller kappa: based on plots schedules that pushed lambda up early/high often drove
+        #   cost down, but they also hurt return once the penalty dominated the
+        #   PPO update.
+        # - lower lambda_max: the better PPOLag_ada runs tended to increase lambda
+        #   more gradually and did not need the largest lambda values to become
+        #   safer.
+
+        # Also:
+        # - Normalize violation by cost_limit.
+        # - Add an EMA correction on violation: the plots only show epoch-level outcomes, so this
+        #   adds a small amount of memory and lets lambda respond to sustained
+        #   safety failure instead of following a fixed time schedule only.
+        # - Add a deadband around zero violation: when EpCost hovers near the cost
+        #   limit and small noisy violations should not trigger a new lambda
+        #   increase.
+        # - Rate-limit per-epoch lambda updates: prevents one noisy epoch from causing a large jump in
+        #   penalty that could destabilize PPO.
+        if sched in {"late_soft_adaptive", "rate_limited_hybrid"}:
+            p0 = float(getattr(cfg, "lambda_p0", 0.7))
+            kappa = float(getattr(cfg, "lambda_kappa", 5.0))
+            eta = float(getattr(cfg, "lambda_eta", 0.5))
+            beta = float(getattr(cfg, "lambda_ema_beta", 0.9))
+
+            # Treat small violations as effectively zero to avoid chatter.
+            deadband = float(getattr(cfg, "lambda_violation_deadband", 0.05)) 
+            rate_up = float(getattr(cfg, "lambda_rate_up", 0.25))
+            rate_down = float(getattr(cfg, "lambda_rate_down", 0.15))
+
+            sigma = 1.0 / (1.0 + math.exp(-kappa * (progress - p0)))
+            base = lam_min + (lam_max - lam_min) * sigma
+
+            violation = float(Jc - cost_limit) / max(cost_limit, 1.0)
+            if abs(violation) <= deadband:
+                violation = 0.0
+            else:
+                violation -= math.copysign(deadband, violation)
+            self._ema_violation = beta * self._ema_violation + (1.0 - beta) * violation
+            if violation <= 0.0:
+                self._ema_violation = min(self._ema_violation, 0.0)
+
+            current = self._get_current_lambda()
+            adaptive_target = current + eta * self._ema_violation
+            target = max(base, adaptive_target)
+            delta = target - current
+            delta = min(max(delta, -rate_down), rate_up)
+            lam = current + delta
+            return min(max(lam, lam_min), lam_max)
+
 
         # 8. NEW: time-varying hybrid
         
