@@ -25,6 +25,7 @@ algo_cfgs:
   target_kl: 0.01
   entropy_coef: 0.0
   update_iters: 80
+  max_grad_norm: 40.0    # matches OmniSafe PPOLag default; KL early-stop is the binding limit
 
 lagrange_cfgs:
   cost_limit: 25.0                   # used as d_target if curriculum_cfgs absent
@@ -43,7 +44,7 @@ model_cfgs:
 
 # ── Innovation 1: PID-Lagrangian + Nesterov Accelerated Dual Ascent ───────────
 pid_cfgs:
-  enabled: true         # set false to fall back to standard PPO-Lag dual ascent
+  enabled: True         # set false to fall back to standard PPO-Lag dual ascent
                         # (λ += lambda_lr · (J_C − d), using lagrange_cfgs.lambda_lr)
 
   Kp: 0.002             # ← CRITICAL FIX: was 0.15 → reduced 75×
@@ -91,7 +92,7 @@ pid_cfgs:
 
 # ── Innovation 2: Adaptive Cost Advantage Normalization + Gradient Ortho ──────
 ortho_cfgs:
-  enabled: true         # gradient orthogonalization active when agent is genuinely safe
+  enabled: false         # gradient orthogonalization active when agent is genuinely safe
                         # (_is_safe = avg_cost <= d_target = 25.0)
                         #
                         # With the corrected PID (λ≈4 at epoch 24 vs PPO-Lag's λ≈2):

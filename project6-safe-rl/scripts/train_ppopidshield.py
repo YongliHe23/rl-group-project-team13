@@ -209,12 +209,19 @@ class Buffer:
         self.ret_c[s] = self.adv_c[s] + self.vals_c[s]
         self.seg = self.ptr
 
-    def get(self):
+    def get(self, standardize_adv_c: bool = False):
         assert self.ptr == self.size
-        # Reward advantage: standard zero-mean normalisation
+        # Reward advantage: full standardisation (mean + std) — same as OmniSafe
         adv_r = (self.adv_r - self.adv_r.mean()) / (self.adv_r.std() + 1e-8)
-        # Innovation 2a: independent cost advantage normalisation (fully decoupled)
-        adv_c = (self.adv_c - self.adv_c.mean()) / (self.adv_c.std() + 1e-8)
+        # Cost advantage normalization:
+        #   standardize_adv_c=False (default, ortho disabled): mean-only subtraction,
+        #     matching OmniSafe PPOLag's standardized_cost_adv behaviour exactly.
+        #   standardize_adv_c=True  (ortho enabled): full mean+std standardisation —
+        #     Innovation 2a; decouples cost gradient scale from raw cost magnitude.
+        if standardize_adv_c:
+            adv_c = (self.adv_c - self.adv_c.mean()) / (self.adv_c.std() + 1e-8)
+        else:
+            adv_c = self.adv_c - self.adv_c.mean()
         return (self.obs, self.acts, self.next_obs, self.logps,
                 adv_r, adv_c, self.ret_r, self.ret_c)
 
@@ -307,15 +314,18 @@ class PPOPIDShieldTrainer:
         crit_lr = mc['critic']['lr']
 
         self.steps_per_epoch = ac['steps_per_epoch']
-        self.clip         = ac['clip']
-        self.target_kl    = ac['target_kl']
-        self.update_iters = ac['update_iters']
-        self.ent_coef     = ac['entropy_coef']
-        self.gamma        = ac['gamma']
-        self.cost_gamma   = ac['cost_gamma']
-        self.lam_gae      = ac['lam']
-        self.lam_c_gae    = ac['lam_c']
-        self.n_epochs     = tc['total_steps'] // self.steps_per_epoch
+        self.clip          = ac['clip']
+        self.target_kl     = ac['target_kl']
+        self.update_iters  = ac['update_iters']
+        self.ent_coef      = ac['entropy_coef']
+        self.gamma         = ac['gamma']
+        self.cost_gamma    = ac['cost_gamma']
+        self.lam_gae       = ac['lam']
+        self.lam_c_gae     = ac['lam_c']
+        self.n_epochs      = tc['total_steps'] // self.steps_per_epoch
+        # Gradient clipping threshold — mirrors OmniSafe's max_grad_norm (default 40.0).
+        # With 40.0 the clip rarely fires; KL early-stopping is the binding constraint.
+        self.max_grad_norm = float(ac.get('max_grad_norm', 40.0))
 
         # Innovation 1: PID-Lagrangian + Nesterov
         self.pid_enabled = bool(pid.get('enabled', True))
@@ -327,9 +337,15 @@ class PPOPIDShieldTrainer:
             Kd            = pid.get('Kd',            0.05),
             beta_nesterov = pid.get('beta_nesterov', 0.6),
         )
-        # Fallback state for standard PPO-Lag dual ascent (used when pid_enabled=False)
-        self._lam_std  = _init_lam
-        self.lambda_lr = float(lc.get('lambda_lr', 0.05))
+        # Fallback for standard PPO-Lag dual ascent (used when pid_enabled=False).
+        # OmniSafe stores lambda as an nn.Parameter and updates it with an Adam
+        # optimizer. Adam normalises the gradient to an effective step of ±lr per
+        # epoch regardless of error magnitude — replicating that here so the
+        # all-disabled config is numerically identical to train_ppolag.py.
+        self.lambda_lr  = float(lc.get('lambda_lr', 0.05))
+        self._lam_param = nn.Parameter(torch.tensor(float(_init_lam)))
+        self._lam_optim = Adam([self._lam_param], lr=self.lambda_lr)
+        self._lam_std   = _init_lam   # shadow scalar read by actor loop
 
         # Innovation 2b: gradient orthogonalization
         self.ortho_enabled = bool(ort.get('enabled', True))
@@ -475,14 +491,31 @@ class PPOPIDShieldTrainer:
     # ── Parameter update ──────────────────────────────────────────────────────
 
     def _update(self, avg_cost: float) -> dict:
+        # standardize_adv_c=True (Innovation 2a) only when ortho is active;
+        # otherwise use OmniSafe's mean-only subtraction so the all-disabled
+        # path is algorithmically identical to PPOLag.
         obs, acts, next_obs, logps_old, adv_r, adv_c, ret_r, ret_c = \
-            self.buf.get()
+            self.buf.get(standardize_adv_c=self.ortho_enabled)
 
         d_curr = self._curr_limit()
-        # Orthogonalization uses the TRUE final target (not the sliding curriculum
-        # limit) so that the agent only projects reward gradients when it is
-        # genuinely safe, not just "curriculum-safe" at a loose early limit.
+        # _is_safe uses the TRUE final target so ortho only fires when the agent
+        # is genuinely within the constraint, not just "curriculum-safe".
         self._is_safe = (avg_cost <= self.d_target)
+
+        # ── Innovation 1: PID/fallback lambda update — BEFORE actor (OmniSafe order) ──
+        # OmniSafe calls update_lagrange_multiplier(Jc) before super()._update().
+        # Using the fresh epoch cost here means the actor sees the most up-to-date λ.
+        if self.pid_enabled:
+            new_lam = self.pid.update(avg_cost, d_curr)
+        else:
+            # Adam-based dual ascent — identical to OmniSafe PPOLag's Lagrange update.
+            self._lam_optim.zero_grad()
+            lam_loss = -self._lam_param * (avg_cost - self.d_target)
+            lam_loss.backward()
+            self._lam_optim.step()
+            self._lam_param.data.clamp_(min=0.0)
+            self._lam_std = self._lam_param.item()
+            new_lam = self._lam_std
 
         # ── Dynamics model (Innovation 3) ─────────────────────────────────────
         # Trained via supervised MSE on collected (s, a) → s' transitions.
@@ -509,8 +542,8 @@ class PPOPIDShieldTrainer:
             self.ccrit_opt.zero_grad(); loss_cc.backward(); self.ccrit_opt.step()
 
         # ── Actor update (PPO-clip + Innovation 2b: gradient ortho) ──────────
-        lam  = self.pid.lam if self.pid_enabled else self._lam_std
-        kl   = 0.0
+        lam = new_lam   # fresh lambda computed above (OmniSafe order: update λ first)
+        kl  = 0.0
         act_lo = self._t(self.act_low)
         act_hi = self._t(self.act_high)
 
@@ -520,12 +553,14 @@ class PPOPIDShieldTrainer:
             clip_r    = ratio.clamp(1 - self.clip, 1 + self.clip)
             entropy   = self.actor.entropy(obs).mean()
 
-            L_reward = (-torch.min(ratio * adv_r, clip_r * adv_r).mean()
-                        - self.ent_coef * entropy)
-            L_cost   = (ratio * adv_c).mean()
-
             if self.ortho_enabled:
-                # --- Two separate backward passes to isolate g_R and g_C ---
+                # Innovation 2 path: separate surrogates so we can isolate and
+                # project the reward gradient independently of the cost gradient.
+                # adv_c is fully standardised (mean+std) — Innovation 2a.
+                L_reward = (-torch.min(ratio * adv_r, clip_r * adv_r).mean()
+                            - self.ent_coef * entropy)
+                L_cost   = (ratio * adv_c).mean()
+
                 # Pass 1: reward gradient (retain graph for L_cost backward)
                 self.actor_opt.zero_grad()
                 L_reward.backward(retain_graph=True)
@@ -544,18 +579,17 @@ class PPOPIDShieldTrainer:
                     for p in self.actor.parameters()
                 ])
 
-                # Orthogonal projection of g_R onto complement of g_C
+                # Orthogonal projection of g_R onto complement of g_C.
                 # Applied only when gradients conflict AND the agent is safe.
                 g_R_norm = g_R.norm()
                 g_C_norm = g_C.norm()
                 if g_R_norm > 1e-8 and g_C_norm > 1e-8:
                     cos_sim = (g_R @ g_C) / (g_R_norm * g_C_norm)
                     if cos_sim < 0 and self._is_safe:
-                        # Remove from g_R the component along g_C
                         proj = (g_R @ g_C) / (g_C @ g_C + 1e-8) * g_C
                         g_R  = g_R - proj
 
-                # Combine: g_final = projected_g_R + λ·g_C
+                # g_final = projected_g_R + λ·g_C
                 g_final = g_R + lam * g_C
 
                 # Install g_final into parameter .grad fields
@@ -566,26 +600,25 @@ class PPOPIDShieldTrainer:
                     p.grad = g_final[offset:offset + n].view_as(p).clone()
                     offset += n
             else:
-                L_total = L_reward + lam * L_cost
+                # OmniSafe PPOLag-identical combined surrogate:
+                #   (adv_r − λ·adv_c) / (1+λ)  with PPO clip applied to the
+                #   combined advantage — exactly _compute_adv_surrogate in PPOLag.
+                # adv_c is mean-only normalised (OmniSafe's standardized_cost_adv).
+                # The (1+λ) factor has no effect on Adam updates (cancels in the
+                # second-moment normalisation), but is kept for exact equivalence.
+                combined_adv = (adv_r - lam * adv_c) / (1.0 + lam)
+                L_total = (-torch.min(ratio * combined_adv, clip_r * combined_adv).mean()
+                           - self.ent_coef * entropy)
                 self.actor_opt.zero_grad()
                 L_total.backward()
 
-            nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
+            nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
             self.actor_opt.step()
 
             with torch.no_grad():
                 kl = (logps_old - self.actor.log_prob(obs, acts)).mean().item()
             if kl > 1.5 * self.target_kl:
                 break
-
-        # ── Innovation 1: PID-Lagrangian + Nesterov update ───────────────────
-        # Uses the raw episodic cost (not shaped) and the curriculum limit.
-        if self.pid_enabled:
-            new_lam = self.pid.update(avg_cost, d_curr)
-        else:
-            # Fallback: standard PPO-Lag integral dual ascent
-            self._lam_std = max(0.0, self._lam_std + self.lambda_lr * (avg_cost - d_curr))
-            new_lam = self._lam_std
 
         return dict(kl=kl, lam=new_lam, d_curr=d_curr,
                     loss_rc=loss_rc.item(), loss_dyn=loss_dyn)
