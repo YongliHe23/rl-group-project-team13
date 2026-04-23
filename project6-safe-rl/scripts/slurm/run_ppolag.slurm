@@ -3,7 +3,7 @@
 #SBATCH --account=jfnielse0
 #SBATCH --partition=spgpu
 #SBATCH --qos=normal
-#SBATCH --time=24:00:00
+#SBATCH --time=8:00:00
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
@@ -36,6 +36,6 @@ cd "$WORKDIR"
 
 nvidia-smi || true
 srun -u python -u scripts/train_ppolag.py \
-    --config configs/ppo_lag/config_pointgoal2_1e7.yaml \
+    --config configs/ppo_lag/config.yaml \
     --env_id SafetyPointGoal2-v0 \
     --seed 0
