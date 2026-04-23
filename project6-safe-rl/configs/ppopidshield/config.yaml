@@ -44,7 +44,7 @@ model_cfgs:
 
 # ── Innovation 1: PID-Lagrangian + Nesterov Accelerated Dual Ascent ───────────
 pid_cfgs:
-  enabled: True         # set false to fall back to standard PPO-Lag dual ascent
+  enabled: true         # set false to fall back to standard PPO-Lag dual ascent
                         # (λ += lambda_lr · (J_C − d), using lagrange_cfgs.lambda_lr)
 
   Kp: 0.002             # ← CRITICAL FIX: was 0.15 → reduced 75×
