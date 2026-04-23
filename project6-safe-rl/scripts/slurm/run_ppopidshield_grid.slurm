@@ -3,7 +3,7 @@
 #SBATCH --account=jfnielse0
 #SBATCH --partition=spgpu
 #SBATCH --qos=normal
-#SBATCH --time=24:00:00
+#SBATCH --time=16:00:00
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
