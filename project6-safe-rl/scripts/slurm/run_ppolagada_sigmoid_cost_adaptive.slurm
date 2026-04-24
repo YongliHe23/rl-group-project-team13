@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=ppolag-pointgoal2
+#SBATCH --job-name=ppolagada-pointgoal2-costAda
 #SBATCH --account=jfnielse0
 #SBATCH --partition=spgpu
 #SBATCH --qos=normal
-#SBATCH --time=8:00:00
+#SBATCH --time=16:00:00
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
@@ -22,10 +22,6 @@ module load cuda/12.6.3
 source "$VENV_DIR/bin/activate"
 unset PYTHONPATH   # prevent ~/.local/python3.9 paths from leaking into the venv
 
-# The system ldconfig cache resolves libcupti.so.12 to the system CUDA version,
-# which is missing the versioned symbol `cuptiActivityEnableDriverApi@@libcupti.so.12`
-# that torch 2.10+cu126 requires.  LD_PRELOAD forces the correct bundled version
-# to be loaded first, before ldconfig or LD_LIBRARY_PATH are consulted.
 SITE_PKGS="$VENV_DIR/lib/python3.10/site-packages"
 export LD_PRELOAD="$SITE_PKGS/nvidia/cuda_cupti/lib/libcupti.so.12"
 
@@ -35,7 +31,16 @@ mkdir -p "$WORKDIR/logs"
 cd "$WORKDIR"
 
 nvidia-smi || true
-srun -u python -u scripts/train_ppolag.py \
-    --config configs/ppo_lag/config_pointgoal2_3M.yaml \
+srun -u python -u scripts/train_ppo_lag_ada.py \
+    --config configs/ppo_lag_ada/config.yaml \
     --env_id SafetyPointGoal2-v0 \
-    --seed 0
+    --seed 0 \
+    --lambda_schedule hybrid_sigmoid_cost_adaptive \
+    --lambda_max 6.0 \
+    --lambda_p0 0.7 \
+    --lambda_kappa 6.0 \
+    --lambda_eta 0.05 \
+    --lambda_ema_beta 0.9 \
+    --lambda_safe_margin 4.0 \
+    --lambda_safe_temp 5.0 \
+    --lambda_decay 0.9

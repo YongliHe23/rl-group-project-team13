@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=ppolagada-pointgoal2-kappa5.0
+#SBATCH --job-name=ppolagada-pointgoal2-kappa6.0
 #SBATCH --account=jfnielse0
 #SBATCH --partition=spgpu
 #SBATCH --qos=normal
@@ -32,12 +32,12 @@ cd "$WORKDIR"
 
 nvidia-smi || true
 srun -u python -u scripts/train_ppo_lag_ada.py \
-    --config configs/ppo_lag_ada/config_5M.yaml \
+    --config configs/ppo_lag_ada/config_3M.yaml \
     --env_id SafetyPointGoal2-v0 \
     --seed 0 \
     --lambda_schedule hybrid_sigmoid_adaptive \
     --lambda_max 6.0 \
     --lambda_p0 0.7 \
-    --lambda_kappa 5.0 \
+    --lambda_kappa 6.0 \
     --lambda_eta 0.06 \
     --lambda_ema_beta 0.9
