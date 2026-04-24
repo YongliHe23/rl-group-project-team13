@@ -3,7 +3,7 @@
 #SBATCH --account=jfnielse0
 #SBATCH --partition=spgpu
 #SBATCH --qos=normal
-#SBATCH --time=16:00:00
+#SBATCH --time=6:00:00
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
@@ -32,7 +32,7 @@ cd "$WORKDIR"
 
 nvidia-smi || true
 srun -u python -u scripts/train_ppo_lag_ada.py \
-    --config configs/ppo_lag_ada/config_3M.yaml \
+    --config configs/ppo_lag_ada/config.yaml \
     --env_id SafetyPointGoal2-v0 \
     --seed 0 \
     --lambda_schedule hybrid_sigmoid_adaptive \
