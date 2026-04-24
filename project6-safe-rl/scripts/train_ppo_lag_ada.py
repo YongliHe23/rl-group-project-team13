@@ -55,6 +55,9 @@ def main():
     parser.add_argument("--lambda_violation_deadband", type=float, default=None)
     parser.add_argument("--lambda_rate_up", type=float, default=None)
     parser.add_argument("--lambda_rate_down", type=float, default=None)
+    parser.add_argument("--lambda_safe_margin", type=float, default=None)
+    parser.add_argument("--lambda_safe_temp", type=float, default=None)
+    parser.add_argument("--lambda_decay", type=float, default=None)
 
     args = parser.parse_args()
 
@@ -99,6 +102,9 @@ def main():
         "lambda_violation_deadband",
         "lambda_rate_up",
         "lambda_rate_down",
+        "lambda_safe_margin",
+        "lambda_safe_temp",
+        "lambda_decay",
     ]
 
     for field in override_fields:
@@ -154,3 +160,15 @@ if __name__ == "__main__":
 
 # late soft adaptive with rate limits
 # python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config_late_soft.yaml --env_id SafetyPointGoal2-v0 --seed 0
+
+# python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config.yaml --env_id SafetyPointGoal2-v0 --seed 0 --lambda_schedule hybrid_timevarying_adaptive --lambda_max 6.0 --lambda_p0 0.55 --lambda_kappa 8.0 --lambda_eta_max 0.12 --lambda_eta_min 0.02 --lambda_ema_beta 0.7 --lambda_base_weight_min 0.2
+
+
+# python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config.yaml --env_id SafetyPointGoal2-v0 --seed 0 --lambda_schedule hybrid_sigmoid_adaptive --lambda_max 6.0 --lambda_p0 0.7 --lambda_kappa 5.0 --lambda_eta 0.05 --lambda_ema_beta 0.8
+# python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config.yaml --env_id SafetyPointGoal2-v0 --seed 0 --lambda_schedule hybrid_sigmoid_adaptive --lambda_max 6.0 --lambda_p0 0.7 --lambda_kappa 5.0 --lambda_eta 0.07 --lambda_ema_beta 0.9
+
+# python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config.yaml --env_id SafetyPointGoal2-v0 --seed 0 --lambda_schedule hybrid_sigmoid_adaptive --lambda_max 6.0 --lambda_p0 0.7 --lambda_kappa 7.0 --lambda_eta 0.05 --lambda_ema_beta 0.9
+# python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config.yaml --env_id SafetyPointGoal2-v0 --seed 0 --lambda_schedule hybrid_sigmoid_adaptive --lambda_max 6.0 --lambda_p0 0.7 --lambda_kappa 6.0 --lambda_eta 0.05 --lambda_ema_beta 0.9
+
+## python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config.yaml --env_id SafetyPointGoal2-v0 --seed 0 --lambda_schedule hybrid_sigmoid_adaptive --lambda_max 6.0 --lambda_p0 0.7 --lambda_kappa 6.0 --lambda_eta 0.05 --lambda_ema_beta 0.9 --lambda_safe_margin 4.0 --lambda_safe_temp 5.0 --lambda_decay 0.9
+
