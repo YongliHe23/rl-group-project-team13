@@ -34,22 +34,22 @@ nvidia-smi || true
 
 echo "=== Evaluating PPOLag ==="
 srun -u python -u scripts/eval_actor.py \
-    --checkpoint "runs/PPOLag-{SafetyPointGoal2-v0}/seed-000-2026-04-18-19-35-31/torch_save/epoch-100.pt" \
+    --checkpoint "runs/PPOLag-{SafetyPointGoal2-v0}/seed-000-2026-04-23-22-41-51/torch_save/epoch-100.pt" \
     --env_id SafetyPointGoal2-v0 \
     --seeds 1 2 3 --episodes 10 \
     --label PPOLag \
-    --out results/eval_ppolag.csv
+    --out results/ppolag/eval_epoch100.csv
 
 echo "=== Evaluating PPOLagAda ==="
 srun -u python -u scripts/eval_actor.py \
-    --checkpoint "runs/ppo_lag_adapt_sigmoid/seed-000-2026-04-22-21-20-31/torch_save/epoch-100.pt" \
+    --checkpoint "runs/ppo_lag_adapt_hybrid_sigmoid_adaptive/seed-000-2026-04-23-22-49-11/torch_save/epoch-100.pt" \
     --env_id SafetyPointGoal2-v0 \
     --seeds 1 2 3 --episodes 10 \
     --label PPOLagAda \
-    --out results/eval_ppolagada_sigmoid_kappa6.0_epoch100.csv
+    --out results/ppolagada/eval_hybrid_sigmoid_epoch100.csv
 
 echo "=== Plotting comparison ==="
 srun -u python -u scripts/plot_eval_comparison.py \
-    --csvs results/eval_ppolag.csv results/eval_ppolagada_sigmoid_kappa6.0_epoch100.csv \
+    --csvs results/ppolag/eval_epoch100.csv results/ppolagada/eval_hybrid_sigmoid_epoch100.csv \
     --labels "PPO-Lag" "PPO-Lag-Ada" \
-    --out plots/eval_comparison_PPOLag_vs_PPOLagada_sigmoid_kappa6.0_epoch100.png
+    --out plots/actor_rollout/ppolag3M_vs_ppolagadaHybridSigmoid3M.png

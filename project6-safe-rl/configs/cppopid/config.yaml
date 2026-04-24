@@ -3,7 +3,7 @@ seed: 0
 env_id: SafetyPointGoal2-v0
 
 train_cfgs:
-  total_steps: 5000000 #5M steps
+  total_steps: 3000000 #5M steps
   vector_env_nums: 1
 
 logger_cfgs:
