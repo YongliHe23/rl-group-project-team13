@@ -68,6 +68,7 @@ def main():
 
     cfg_dict = load_builtin_ppolag_yaml(env_id)
     cfg_dict = recursive_update(cfg_dict, user_cfg)
+    cfg_dict["env_id"] = env_id  # CLI --env_id takes precedence over yaml
 
     seed = args.seed if args.seed is not None else cfg_dict.pop("seed", 0)
     cfg_dict["seed"] = seed
