@@ -171,4 +171,5 @@ if __name__ == "__main__":
 # python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config.yaml --env_id SafetyPointGoal2-v0 --seed 0 --lambda_schedule hybrid_sigmoid_adaptive --lambda_max 6.0 --lambda_p0 0.7 --lambda_kappa 6.0 --lambda_eta 0.05 --lambda_ema_beta 0.9
 
 ## python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config.yaml --env_id SafetyPointGoal2-v0 --seed 0 --lambda_schedule hybrid_sigmoid_adaptive --lambda_max 6.0 --lambda_p0 0.7 --lambda_kappa 6.0 --lambda_eta 0.05 --lambda_ema_beta 0.9 --lambda_safe_margin 4.0 --lambda_safe_temp 5.0 --lambda_decay 0.9
+## python scripts/train_ppo_lag_ada.py --config configs/ppo_lag_ada/config.yaml --env_id SafetyPointGoal2-v0 --seed 0 --lambda_schedule hybrid_sigmoid_cost_adaptive --lambda_max 6.0 --lambda_p0 0.7 --lambda_kappa 6.0 --lambda_eta 0.05 --lambda_ema_beta 0.9 --lambda_safe_margin 4.0 --lambda_safe_temp 5.0 --lambda_decay 0.9
 
