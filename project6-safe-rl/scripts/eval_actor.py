@@ -67,8 +67,7 @@ def evaluate(
     label: str,
     out_csv,
 ):
-    import safety_gymnasium  # noqa: F401
-    import gymnasium
+    import safety_gymnasium
 
     policy, obs_mean, obs_std, act_dim = load_policy(checkpoint)
     print(f"Loaded: {checkpoint}")
@@ -77,7 +76,7 @@ def evaluate(
     rows = []
 
     for seed in seeds:
-        env = gymnasium.make(env_id)
+        env = safety_gymnasium.make(env_id)
         ep_returns, ep_costs, ep_lens = [], [], []
 
         for ep in range(episodes_per_seed):
@@ -88,9 +87,9 @@ def evaluate(
             while not done:
                 action = get_action(policy, obs_mean, obs_std, obs)
                 action = np.clip(action, env.action_space.low, env.action_space.high)
-                obs, reward, terminated, truncated, info = env.step(action)
+                obs, reward, cost, terminated, truncated, info = env.step(action)
                 ep_ret  += float(reward)
-                ep_cost += float(info.get("cost", 0.0))
+                ep_cost += float(cost)
                 ep_len  += 1
                 done = terminated or truncated
 

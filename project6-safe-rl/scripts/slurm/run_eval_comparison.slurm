@@ -42,14 +42,14 @@ srun -u python -u scripts/eval_actor.py \
 
 echo "=== Evaluating PPOLagAda ==="
 srun -u python -u scripts/eval_actor.py \
-    --checkpoint "runs/ppo_lag_adapt_sigmoid/seed-000-2026-04-22-21-50-52/torch_save/epoch-167.pt" \
+    --checkpoint "runs/ppo_lag_adapt_sigmoid/seed-000-2026-04-22-21-20-31/torch_save/epoch-100.pt" \
     --env_id SafetyPointGoal2-v0 \
     --seeds 1 2 3 --episodes 10 \
     --label PPOLagAda \
-    --out results/eval_ppolagada.csv
+    --out results/eval_ppolagada_sigmoid_kappa6.0_epoch100.csv
 
 echo "=== Plotting comparison ==="
 srun -u python -u scripts/plot_eval_comparison.py \
-    --csvs results/eval_ppolag.csv results/eval_ppolagada.csv \
+    --csvs results/eval_ppolag.csv results/eval_ppolagada_sigmoid_kappa6.0_epoch100.csv \
     --labels "PPO-Lag" "PPO-Lag-Ada" \
-    --out plots/eval_comparison.png
+    --out plots/eval_comparison_PPOLag_vs_PPOLagada_sigmoid_kappa6.0_epoch100.png
