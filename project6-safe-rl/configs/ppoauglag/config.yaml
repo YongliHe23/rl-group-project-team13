@@ -1,0 +1,61 @@
+algo: PPOAugLag
+seed: 0
+env_id: SafetyPointGoal2-v0
+
+train_cfgs:
+  total_steps: 3000000
+  vector_env_nums: 1
+
+logger_cfgs:
+  use_wandb: false
+
+# ── Base PPO-Lag settings (identical to configs/ppo_lag/config.yaml) ──────────
+algo_cfgs:
+  steps_per_epoch: 30000
+  gamma: 0.99
+  cost_gamma: 0.99
+  lam: 0.97
+  lam_c: 0.97
+  clip: 0.2
+  target_kl: 0.01
+  entropy_coef: 0.0
+  update_iters: 80
+
+lagrange_cfgs:
+  cost_limit: 25.0
+  lagrangian_multiplier_init: 1.0
+  lambda_lr: 0.05
+  lambda_optimizer: Adam
+
+model_cfgs:
+  actor:
+    lr: 0.0003
+    hidden_sizes: [256, 256]
+    activation: "tanh"
+  critic:
+    lr: 0.001
+    hidden_sizes: [256, 256]
+    activation: "tanh"
+
+# ── Augmented Lagrangian + Conservative Update extensions ─────────────────────
+# Set enabled: false to revert to exact PPOLag behaviour (no other changes).
+auglag_cfgs:
+  enabled: true
+
+  # (I) Augmented Lagrangian quadratic penalty coefficient.
+  #     Effective penalty: λ_eff = λ + rho * max(0, (J_c - d) / d)
+  #     The quadratic term locally convexifies the saddle-point landscape near
+  #     the constraint boundary.  Normalising by d keeps rho dimensionless.
+  #     rho = 0 → standard PPOLag (no convexification).
+  #     rho = 1 → adds a penalty equal to λ when cost is 2× the limit.
+  rho: 1.0
+
+  # (II) Conservative Update Policy clip — proportional safety-ratio formula.
+  #      Effective clip: ε_eff = ε · d / (d + cup_alpha · max(0, J_c − d))
+  #                            = ε · d / J_c  when cup_alpha=1 and J_c ≥ d
+  #      Tightens the PPO trust-region proportionally to how far J_c exceeds d.
+  #      cup_alpha = 0   → standard PPO clip (no tightening).
+  #      cup_alpha = 1   → ε/2 when J_c=2d; ε/5 when J_c=5d (linear).
+  #      cup_alpha = 0.5 → gentler tightening (ε·2/3 when J_c=2d).
+  #      Floor: always ≥ 0.1·ε to avoid completely paralysing the policy.
+  cup_alpha: 1.0
