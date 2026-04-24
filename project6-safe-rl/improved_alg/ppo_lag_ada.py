@@ -172,24 +172,53 @@ class PPOLagAdapt(PPOLag):
 
         # 8. NEW: time-varying hybrid
         
-        if sched == "hybrid_timevarying_adaptive":
-            # lam = w_{base} lam_{base} + eta_t * ema_violation
-            # eta_t increases from eta_min to eta_max over time
-            # ema_violation = beta * ema_violation + (1-beta) * violation
-            # beta: momory term for violation, higher beta means more stable but less responsive lambda
+        # if sched == "hybrid_timevarying_adaptive":
+        #     # lam = w_{base} lam_{base} + eta_t * ema_violation
+        #     # eta_t increases from eta_min to eta_max over time
+        #     # ema_violation = beta * ema_violation + (1-beta) * violation
+        #     # beta: momory term for violation, higher beta means more stable but less responsive lambda
             
-            p0 = float(getattr(cfg, "lambda_p0", 0.35))
+        #     p0 = float(getattr(cfg, "lambda_p0", 0.35))
+        #     kappa = float(getattr(cfg, "lambda_kappa", 10.0))
+        #     beta = float(getattr(cfg, "lambda_ema_beta", 0.9))
+
+        #     # eta increases over time
+        #     eta_min = float(getattr(cfg, "lambda_eta_min", 0.0))
+        #     eta_max = float(getattr(cfg, "lambda_eta_max", 0.05))
+        #     eta_t = eta_min + (eta_max - eta_min) * progress
+
+        #     # base weight decreases over time
+        #     base_weight_min = float(getattr(cfg, "lambda_base_weight_min", 0.0))
+        #     base_weight = base_weight_min + (1.0 - base_weight_min) * (1.0 - progress)
+
+        #     sigma = 1.0 / (1.0 + math.exp(-kappa * (progress - p0)))
+        #     base = lam_min + (lam_max - lam_min) * sigma
+
+        #     violation = float(Jc - cost_limit)
+        #     self._ema_violation = beta * self._ema_violation + (1.0 - beta) * violation
+
+        #     lam = base_weight * base + eta_t * self._ema_violation
+        #     return min(max(lam, 0.0), lam_max)
+
+        # 8. smooth gated hybrid:
+        # lam = g(Jc) * base + eta * ema_violation
+        # if cost is already safe, let lambda decay gradually, not abruptly
+        if sched == "hybrid_sigmoid_cost_adaptive":
+            p0 = float(getattr(cfg, "lambda_p0", 0.7))
             kappa = float(getattr(cfg, "lambda_kappa", 10.0))
+
+            # EMA memory for violation
             beta = float(getattr(cfg, "lambda_ema_beta", 0.9))
+            eta = float(getattr(cfg, "lambda_eta", 0.05))
 
-            # eta increases over time
-            eta_min = float(getattr(cfg, "lambda_eta_min", 0.0))
-            eta_max = float(getattr(cfg, "lambda_eta_max", 0.05))
-            eta_t = eta_min + (eta_max - eta_min) * progress
+            # smooth gate parameters for the base term
+            # gate ~ 0 when safely below threshold
+            # gate ~ 1 when clearly above threshold
+            safe_margin = float(getattr(cfg, "lambda_safe_margin", 0.0))
+            safe_temp = float(getattr(cfg, "lambda_safe_temp", 5.0))
 
-            # base weight decreases over time
-            base_weight_min = float(getattr(cfg, "lambda_base_weight_min", 0.0))
-            base_weight = base_weight_min + (1.0 - base_weight_min) * (1.0 - progress)
+            # gradual lambda decay when already safe
+            lambda_decay = float(getattr(cfg, "lambda_decay", 0.9))
 
             sigma = 1.0 / (1.0 + math.exp(-kappa * (progress - p0)))
             base = lam_min + (lam_max - lam_min) * sigma
@@ -197,10 +226,21 @@ class PPOLagAdapt(PPOLag):
             violation = float(Jc - cost_limit)
             self._ema_violation = beta * self._ema_violation + (1.0 - beta) * violation
 
-            lam = base_weight * base + eta_t * self._ema_violation
-            return min(max(lam, 0.0), lam_max)
-    
+            # smooth factor in front of lambda_base
+            # centered at safe_margin; larger safe_temp => smoother transition
+            gate = 1.0 / (1.0 + math.exp(-(violation - safe_margin) / safe_temp))
 
+            prev_lam = self._get_current_lambda()
+            candidate = gate * base + eta * self._ema_violation
+
+            # if we are in/near the safe region, do not let lambda crash too fast
+            if violation <= safe_margin:
+                lam = max(candidate, lambda_decay * prev_lam)
+            else:
+                lam = candidate
+
+            return min(max(lam, 0.0), lam_max)
+        
         raise ValueError(f"Unknown lambda_schedule: {sched}")
 
     def _update(self) -> None:
