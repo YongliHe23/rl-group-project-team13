@@ -1,0 +1,77 @@
+algo: PPOLagFuzRL
+seed: 0
+env_id: SafetyPointGoal2-v0
+
+train_cfgs:
+  total_steps: 3000000
+  vector_env_nums: 1
+
+logger_cfgs:
+  use_wandb: false
+
+# ── Base PPO-Lag settings (identical to configs/ppo_lag/config.yaml) ──────────
+algo_cfgs:
+  steps_per_epoch: 30000
+  gamma: 0.99
+  cost_gamma: 0.99
+  lam: 0.97
+  lam_c: 0.97
+  clip: 0.2
+  target_kl: 0.01
+  entropy_coef: 0.0
+  update_iters: 80
+
+lagrange_cfgs:
+  cost_limit: 25.0
+  lagrangian_multiplier_init: 1.0
+  lambda_lr: 0.05
+  lambda_optimizer: Adam
+
+model_cfgs:
+  actor:
+    lr: 0.0003
+    hidden_sizes: [256, 256]
+    activation: "tanh"
+  critic:
+    lr: 0.001
+    hidden_sizes: [256, 256]
+    activation: "tanh"
+
+# ── Advanced Cost-GAE + Augmented Lagrangian + Fuz-RL extensions ──────────────
+# Set enabled: false to revert to exact PPOLag behaviour (no other changes).
+fuzrl_cfgs:
+  enabled: true
+
+  # (I) Advanced Cost-GAE — separate GAE discount for cost advantages.
+  #     Binary cost signals (0/1 per step) are sparser than reward signals,
+  #     so a lower lambda effectively shortens the bootstrap horizon, reducing
+  #     variance introduced by multi-step cost returns.
+  #     lam_c_fuzrl = 0.97 → standard PPOLag (no change to buffer).
+  #     lam_c_fuzrl = 0.7  → strongly discounted cost GAE (less variance,
+  #                           more bias toward local cost estimates).
+  lam_c_fuzrl: 0.7
+
+  # (II) Augmented Lagrangian fast-response penalty.
+  #      Augments the Adam-based multiplier λ with a violation-proportional term:
+  #          λ_eff = λ  +  ρ · max(0, (J_c − d) / d)
+  #      Adam responds only to the sign of violation (Δλ≈0.05/epoch regardless
+  #      of magnitude).  This term responds proportionally to the violation, giving
+  #      fast escalation comparable to CPPOPID's PID controller without altering
+  #      the base λ trajectory (the augmentation vanishes once J_c ≤ d).
+  #      rho = 0   → standard PPOLag (no augmentation).
+  #      rho = 1.5, J_c=130, d=25 → λ_eff = λ + 6.3  (≈ CPPOPID epoch-0 level).
+  #      rho = 1.5, J_c=25 (on boundary) → λ_eff = λ   (no change when safe).
+  rho: 1.5
+
+  # (III) Fuz-RL Choquet integral conservative cost advantage re-weighting.
+  #       Replaces adv_c with a distributionally robust "fuzzy" estimate:
+  #           adv_c_fuzzy = adv_c + alpha * relu(adv_c - mean(adv_c))
+  #       This upweights positive-deviation samples (high-cost actions) and
+  #       leaves negative-deviation samples unchanged, producing a CVaR-like
+  #       pessimistic cost estimate under distributional uncertainty.
+  #       With the Aug-Lag term providing fast λ escalation, alpha=0.3 acts as
+  #       a gentle safety margin rather than compensating for a weak multiplier.
+  #       choquet_alpha = 0   → standard adv_c (no re-weighting).
+  #       choquet_alpha = 0.3 → 30 % upweight on above-mean cost deviations.
+  #       choquet_alpha = 1.0 → full upweight (doubles high-cost deviations).
+  choquet_alpha: 0.3
